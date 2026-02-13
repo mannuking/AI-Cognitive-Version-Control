@@ -72,7 +72,7 @@ def agent_banner(version: str, provider: str, model: str, branch: str, workspace
             padding=(1, 4),
             title=f"[bold {THEME['accent']}]v{version}[/bold {THEME['accent']}]",
             title_align="right",
-            subtitle=f"[{THEME['text_dim']}]Powered by CVC[/{THEME['text_dim']}]",
+            subtitle=f"[{THEME['text_dim']}]Time Machine for AI Agents[/{THEME['text_dim']}]",
             subtitle_align="center",
         )
     )

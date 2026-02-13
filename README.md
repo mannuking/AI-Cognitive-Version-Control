@@ -351,7 +351,7 @@ flowchart LR
         direction TB
         C1["Claude"]
         C2["GPT-5.2"]
-        C3["Gemini"]
+        C3["Gemini 3 Pro"]
         C4["Ollama 🏠"]
     end
 
@@ -937,8 +937,8 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 </tr>
 <tr>
 <td><strong>Google</strong></td>
-<td><code>gemini-3-pro</code></td>
-<td><code>gemini-3-flash</code>, <code>gemini-2.5-flash</code>, <code>gemini-2.5-pro</code></td>
+<td><code>gemini-3-pro-preview</code></td>
+<td><code>gemini-2.5-pro</code>, <code>gemini-2.5-flash</code>, <code>gemini-2.5-flash-lite</code></td>
 <td>OpenAI-compatible endpoint</td>
 </tr>
 <tr>
@@ -1153,7 +1153,7 @@ See <em>how</em> an AI-generated PR was produced. Inspect for hallucination patt
 </tr>
 <tr>
 <td><strong>☁️ Google Gemini Adapter</strong></td>
-<td>✅ Gemini 3 Pro / Flash / 2.5 Flash</td>
+<td>✅ Gemini 3 Pro Preview / 2.5 Pro / 2.5 Flash</td>
 </tr>
 <tr>
 <td><strong>🏠 Ollama (Local)</strong></td>
