@@ -224,14 +224,17 @@ Python 3.11+ • Git *(for VCS bridge features)*
 CVC is a globally-installable CLI tool — **no need to clone the repo into your project**.
 
 ```bash
-# Install globally from GitHub (recommended)
-pip install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+# Install from PyPI (recommended)
+pip install tm-ai
 
 # Or with uv (faster)
-uv pip install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+uv pip install tm-ai
 
 # Or install as a uv tool (isolated, always on PATH)
-uv tool install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+uv tool install tm-ai
+
+# With extras (e.g. Anthropic adapter)
+pip install "tm-ai[anthropic]"     # or: tm-ai[openai], tm-ai[all]
 ```
 
 <details>

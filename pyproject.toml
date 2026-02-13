@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cvc"
+name = "tm-ai"
 version = "0.1.0"
-description = "Cognitive Version Control — Git for the AI Mind"
+description = "Time Machine for AI Agents — Cognitive Version Control for LLM context"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -42,7 +42,7 @@ anthropic = ["anthropic>=0.39.0"]
 openai = ["openai>=1.50.0"]
 google = ["google-genai>=1.0.0"]
 ollama = []  # No extra deps — Ollama uses httpx (already a core dep)
-all = ["cvc[vector,anthropic,openai,google]"]
+all = ["tm-ai[vector,anthropic,openai,google]"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24.0", "ruff>=0.7.0"]
 
 [project.scripts]
