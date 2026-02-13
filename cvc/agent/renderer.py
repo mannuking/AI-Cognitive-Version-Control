@@ -427,11 +427,7 @@ class StreamingRenderer:
 
     def start(self) -> None:
         """Start the streaming display."""
-        console.print(
-            f"\n[{THEME['primary_dim']}]┌─[/{THEME['primary_dim']}]"
-            f"[bold {THEME['primary_bright']}] Agent[/bold {THEME['primary_bright']}]"
-            f"[{THEME['primary_dim']}] ──────────────────────────────────────[/{THEME['primary_dim']}]"
-        )
+        console.print()  # blank line before the streaming panel
         self._buffer = ""
         self._live = Live(
             Text("▌", style=THEME["text_dim"]),

@@ -425,6 +425,8 @@ class AgentSession:
                         prompt_tokens = event.prompt_tokens
                         completion_tokens = event.completion_tokens
                         cache_read_tokens = event.cache_read_tokens
+                        if event._provider_meta.get("gemini_parts"):
+                            gemini_parts = event._provider_meta["gemini_parts"]
 
                 if streaming_started:
                     response_text = streamer.finish()
@@ -464,6 +466,10 @@ class AgentSession:
                         for tc in tool_calls
                     ],
                 }
+
+                # Store raw Gemini parts — preserves thoughtSignature for Gemini 3
+                if gemini_parts:
+                    assistant_msg["_gemini_parts"] = gemini_parts
 
                 self.messages.append(assistant_msg)
 

@@ -57,6 +57,7 @@ class StreamEvent:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cache_read_tokens: int = 0
+    _provider_meta: dict[str, Any] = field(default_factory=dict)
 
 
 class AgentLLM:
@@ -548,6 +549,7 @@ class AgentLLM:
         url = f"/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"
 
         tool_calls: list[ToolCall] = []
+        all_raw_parts: list[dict] = []  # accumulate raw parts for thoughtSignature
         prompt_tokens = 0
         completion_tokens = 0
 
@@ -590,6 +592,8 @@ class AgentLLM:
                     candidates = chunk.get("candidates", [])
                     if candidates:
                         parts = candidates[0].get("content", {}).get("parts", [])
+                        # Accumulate raw parts (preserves thoughtSignature for Gemini 3)
+                        all_raw_parts.extend(parts)
                         for i, part in enumerate(parts):
                             if "text" in part:
                                 yield StreamEvent(type="text_delta", text=part["text"])
@@ -616,6 +620,7 @@ class AgentLLM:
             type="done",
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            _provider_meta={"gemini_parts": all_raw_parts} if all_raw_parts else {},
         )
 
     @staticmethod
