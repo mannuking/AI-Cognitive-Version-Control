@@ -432,8 +432,12 @@ class AgentSession:
                     response_text = streamer.finish()
 
             except Exception as exc:
-                render_error(f"LLM error: {exc}")
-                logger.error("LLM call failed: %s", exc, exc_info=True)
+                # Show clean error to user (no traceback)
+                error_msg = str(exc)
+                # Extract just the first meaningful line for display
+                first_line = error_msg.split('\n')[0]
+                render_error(first_line)
+                logger.debug("LLM call failed: %s", exc, exc_info=True)
 
                 # Auto-retry on transient errors
                 if iterations == 1 and ("timeout" in str(exc).lower() or "connection" in str(exc).lower()):

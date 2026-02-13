@@ -68,6 +68,19 @@ class AgentLLM:
     and a common interface used by the agent loop.
     """
 
+    # Common model name corrections (typo / shorthand → actual API name)
+    _MODEL_ALIASES: dict[str, str] = {
+        # Google Gemini aliases
+        "gemini-3-pro": "gemini-3-pro-preview",
+        "gemini-3-flash": "gemini-3-flash-preview",
+        "gemini-3": "gemini-3-pro-preview",
+        "gemini-2.5": "gemini-2.5-flash",
+        "gemini-2.5-flash-preview": "gemini-2.5-flash",
+        "gemini-2.5-pro-preview": "gemini-2.5-pro",
+        "gemini-pro": "gemini-2.5-pro",
+        "gemini-flash": "gemini-2.5-flash",
+    }
+
     def __init__(
         self,
         provider: str,
@@ -77,8 +90,14 @@ class AgentLLM:
     ) -> None:
         self.provider = provider.lower()
         self.api_key = api_key
-        self.model = model
         self.base_url = base_url
+
+        # Auto-correct common model name mistakes
+        corrected = self._MODEL_ALIASES.get(model)
+        if corrected:
+            logger.info("Auto-corrected model name '%s' → '%s'", model, corrected)
+            model = corrected
+        self.model = model
 
         # Build the httpx client for the provider
         headers: dict[str, str] = {"Content-Type": "application/json"}
