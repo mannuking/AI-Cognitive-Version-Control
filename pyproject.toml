@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tm-ai"
-version = "0.2.0"
+version = "0.2.2"
 description = "Time Machine for AI Agents — Cognitive Version Control for LLM context"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Version Control",
     "Operating System :: OS Independent",
 ]

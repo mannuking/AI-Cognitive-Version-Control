@@ -263,8 +263,153 @@ MODEL_CATALOG = {
 def setup(provider: str | None, model: str, api_key: str) -> None:
     """Interactive first-time setup — pick your provider, model, and go."""
     from cvc.adapters import PROVIDER_DEFAULTS
+    from cvc.core.models import GlobalConfig as GC_Init, get_global_config_dir
 
     _banner("Setup Wizard")
+
+    # ─── Detect existing configuration ───────────────────────────────────
+    existing_gc = GC_Init.load()
+    has_existing = bool(existing_gc.provider)
+
+    if has_existing and not provider:
+        # Show current config summary and let user choose
+        masked_keys = {}
+        for prov, key in existing_gc.api_keys.items():
+            if key and len(key) > 12:
+                masked_keys[prov] = key[:8] + "…" + key[-4:]
+            elif key:
+                masked_keys[prov] = "●●●●"
+
+        current_info = (
+            f"  Provider   [bold cyan]{existing_gc.provider}[/bold cyan]\n"
+            f"  Model      [bold cyan]{existing_gc.model}[/bold cyan]"
+        )
+        if masked_keys:
+            keys_str = ", ".join(f"{p}: {m}" for p, m in masked_keys.items())
+            current_info += f"\n  API Keys   [dim]{keys_str}[/dim]"
+
+        console.print(
+            Panel(
+                current_info,
+                border_style="green",
+                title="[bold green]Existing Configuration Found[/bold green]",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+
+        console.print("  [bold white]What would you like to do?[/bold white]")
+        console.print()
+        console.print("    [cyan]1[/cyan]  [bold]Start Fresh[/bold]          [dim]— Reconfigure everything from scratch[/dim]")
+        console.print("    [green]2[/green]  [bold]Change Provider[/bold]     [dim]— Switch to a different LLM provider[/dim]")
+        console.print("    [yellow]3[/yellow]  [bold]Change Model[/bold]        [dim]— Keep provider, pick a different model[/dim]")
+        console.print("    [magenta]4[/magenta]  [bold]Update API Key[/bold]      [dim]— Replace or add an API key[/dim]")
+        console.print("    [red]5[/red]  [bold]Reset Everything[/bold]    [dim]— Delete all config and start over[/dim]")
+        console.print()
+
+        action = click.prompt(
+            "  Enter number",
+            type=click.IntRange(1, 5),
+            default=1,
+        )
+        console.print()
+
+        if action == 5:
+            # Reset everything
+            config_dir = get_global_config_dir()
+            config_file = config_dir / "config.json"
+            if config_file.exists():
+                config_file.unlink()
+                _success(f"Deleted global config → [dim]{config_file}[/dim]")
+            # Reset the existing_gc so the wizard runs fresh
+            existing_gc = GC_Init()
+            _info("Starting fresh setup…")
+            console.print()
+        elif action == 3:
+            # Change model only — jump straight to model selection
+            provider = existing_gc.provider
+            _success(f"Provider: [bold]{provider}[/bold]  [dim](keeping current)[/dim]")
+            console.print()
+
+            defaults = PROVIDER_DEFAULTS[provider]
+            chosen_model = existing_gc.model
+
+            console.print("[bold cyan]  Pick a new model[/bold cyan]")
+            console.print()
+
+            models = MODEL_CATALOG.get(provider, [])
+            table = Table(box=box.ROUNDED, border_style="dim", show_header=True, header_style="bold cyan")
+            table.add_column("#", style="bold", width=3)
+            table.add_column("Model ID", style="cyan")
+            table.add_column("Description")
+            table.add_column("Tier", style="dim", justify="right")
+            table.add_column("", width=3)
+            for i, (mid, desc, tier) in enumerate(models, 1):
+                marker = "[bold green]●[/bold green]" if mid == chosen_model else " "
+                table.add_row(str(i), mid, desc, tier, marker)
+            console.print(Panel(table, border_style="cyan", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1)))
+
+            model_choice = click.prompt("  Enter number or model ID", default="", show_default=False).strip()
+            if model_choice:
+                if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+                    chosen_model = models[int(model_choice) - 1][0]
+                else:
+                    chosen_model = model_choice
+
+            # Save with updated model
+            api_keys = dict(existing_gc.api_keys)
+            gc = GC_Init(provider=provider, model=chosen_model, api_keys=api_keys)
+            gc_path = gc.save()
+            _success(f"Model updated to [bold]{chosen_model}[/bold]")
+            _success(f"Config saved → [dim]{gc_path}[/dim]")
+            console.print()
+            return
+
+        elif action == 4:
+            # Update API key only
+            provider = existing_gc.provider
+            _success(f"Provider: [bold]{provider}[/bold]")
+            console.print()
+
+            defaults = PROVIDER_DEFAULTS[provider]
+            env_key = defaults["env_key"]
+
+            if provider == "ollama":
+                _success("Ollama doesn't need an API key — it runs locally!")
+                console.print()
+                return
+
+            key_urls = {
+                "anthropic": "https://console.anthropic.com/settings/keys",
+                "openai": "https://platform.openai.com/api-keys",
+                "google": "https://aistudio.google.com/apikey",
+            }
+            url = key_urls.get(provider, "")
+            if url:
+                console.print(f"  [dim]Get your key →[/dim] [bold underline]{url}[/bold underline]")
+                console.print()
+
+            new_key = click.prompt("  Paste your new API key", hide_input=True).strip()
+            if new_key:
+                api_keys = dict(existing_gc.api_keys)
+                api_keys[provider] = new_key
+                gc = GC_Init(provider=provider, model=existing_gc.model, api_keys=api_keys)
+                gc_path = gc.save()
+                _success("API key updated!")
+                _success(f"Config saved → [dim]{gc_path}[/dim]")
+            else:
+                _warn("No key entered. Nothing changed.")
+            console.print()
+            return
+
+        elif action == 2:
+            # Change provider — fall through to full wizard but don't reset keys
+            provider = None  # Will prompt for provider below
+            _info("Select a new provider below…")
+            console.print()
+
+        # action == 1 (Start Fresh) or action == 2 (Change Provider)
+        # Both fall through to the full wizard below
 
     console.print(
         Panel(
