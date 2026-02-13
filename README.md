@@ -515,7 +515,7 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 <tr>
 <td><strong>Anthropic</strong></td>
 <td><code>claude-opus-4-6</code></td>
-<td><code>claude-sonnet-4-5</code>, <code>claude-haiku-4-5</code></td>
+<td><code>claude-opus-4-5</code>, <code>claude-sonnet-4-5</code>, <code>claude-haiku-4-5</code></td>
 <td>Prompt caching with <code>cache_control</code></td>
 </tr>
 <tr>

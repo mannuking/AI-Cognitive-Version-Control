@@ -313,6 +313,7 @@ def setup(provider: str, model: str) -> None:
     model_table = {
         "anthropic": [
             ("claude-opus-4-6", "Most intelligent — agents & coding"),
+            ("claude-opus-4-5", "Previous flagship — excellent reasoning"),
             ("claude-sonnet-4-5", "Best speed / intelligence balance"),
             ("claude-haiku-4-5", "Fastest & cheapest"),
         ],

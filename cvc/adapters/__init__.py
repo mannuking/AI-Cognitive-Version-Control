@@ -5,7 +5,7 @@ Provides a ``create_adapter()`` factory that returns the correct adapter
 based on the CVC_PROVIDER environment variable (or ``CVCConfig.provider``).
 
 Supported providers:
-    - ``anthropic``  — Claude Opus 4.6 / Sonnet 4.5 / Haiku 4.5
+    - ``anthropic``  — Claude Opus 4.6 / Opus 4.5 / Sonnet 4.5 / Haiku 4.5
     - ``openai``     — GPT-5.2 / GPT-5.2-Codex / GPT-5-mini
     - ``google``     — Gemini 3 Pro / Gemini 3 Flash / Gemini 2.5 Flash
     - ``ollama``     — Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 (local)
