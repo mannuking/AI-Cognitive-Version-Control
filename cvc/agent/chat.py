@@ -1146,14 +1146,15 @@ async def _run_agent_async(
         while True:
             try:
                 if _has_prompt_toolkit:
-                    user_input = get_input_with_completion(
+                    user_input = await get_input_with_completion(
                         branch=engine.active_branch,
                         turn=session.turn_count + 1,
                     )
                 else:
-                    user_input = print_input_prompt(
-                        branch=engine.active_branch,
-                        turn=session.turn_count + 1,
+                    user_input = await asyncio.to_thread(
+                        print_input_prompt,
+                        engine.active_branch,
+                        session.turn_count + 1,
                     )
             except (KeyboardInterrupt, EOFError):
                 break
@@ -1241,40 +1242,13 @@ def _smart_onboarding(workspace: Path, config: CVCConfig) -> None:
 
     if not _is_proxy_running_standalone():
         console.print(
-            f"  [{THEME['text_dim']}]Tip: The CVC Proxy is not running. "
-            f"Your IDE won't connect to CVC without it.[/{THEME['text_dim']}]"
+            f"  [{THEME['text_dim']}]Tip: The CVC Proxy is not needed for the agent, "
+            f"but your IDE needs it to connect to CVC.[/{THEME['text_dim']}]"
         )
-
-        try:
-            answer = console.input(
-                f"  [{THEME['accent']}]Start the proxy in a new terminal? (Y/n):[/{THEME['accent']}] "
-            ).strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            answer = "n"
-
-        if answer in ("", "y", "yes"):
-            try:
-                if sys.platform == "win32":
-                    _sp.Popen(
-                        ["cmd", "/c", "start", "CVC Proxy", "cvc", "serve"],
-                        creationflags=_sp.CREATE_NEW_CONSOLE,
-                    )
-                else:
-                    _sp.Popen(
-                        ["cvc", "serve"],
-                        stdout=_sp.DEVNULL,
-                        stderr=_sp.DEVNULL,
-                        start_new_session=True,
-                    )
-                render_success("CVC Proxy starting in a new terminal…")
-                render_info("IDE endpoint: [bold]http://127.0.0.1:8000/v1[/bold]")
-            except Exception as exc:
-                render_error(f"Failed to start proxy: {exc}")
-                render_info("Start it manually: [bold]cvc serve[/bold]")
-        else:
-            render_info(
-                "Skipped. Run [bold]/serve[/bold] anytime, or [bold]cvc serve[/bold] in another terminal."
-            )
+        console.print(
+            f"  [{THEME['text_dim']}]Run [bold]/serve[/bold] or [bold]cvc serve[/bold] "
+            f"in another terminal if you want IDE integration.[/{THEME['text_dim']}]"
+        )
         console.print()
         hints_shown = True
 
