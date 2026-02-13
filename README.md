@@ -8,6 +8,7 @@
 
 ---
 
+[![PyPI](https://img.shields.io/pypi/v/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/tm-ai/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/Status-Alpha-orange?style=for-the-badge)](https://github.com/mannuking/AI-Cognitive-Version-Control)
@@ -16,6 +17,10 @@
 [![GitHub Stars](https://img.shields.io/github/stars/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/network/members)
 [![GitHub Issues](https://img.shields.io/github/issues/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/issues)
+
+```
+pip install tm-ai
+```
 
 [✨ Features](#-the-problem-were-solving) • [🚀 Quick Start](#-get-started) • [📖 Documentation](#-cli) • [🤝 Contributing](#-contributing) • [💬 Community](#-contributing)
 
@@ -221,24 +226,35 @@ Python 3.11+ • Git *(for VCS bridge features)*
 
 ### 📦 Install
 
-CVC is a globally-installable CLI tool — **no need to clone the repo into your project**.
+> **Available on [PyPI](https://pypi.org/project/tm-ai/)** — install in one command, no cloning required.
 
 ```bash
-# Install from PyPI (recommended)
 pip install tm-ai
-
-# Or with uv (faster)
-uv pip install tm-ai
-
-# Or install as a uv tool (isolated, always on PATH)
-uv tool install tm-ai
-
-# With extras (e.g. Anthropic adapter)
-pip install "tm-ai[anthropic]"     # or: tm-ai[openai], tm-ai[all]
 ```
 
+That's it. The `cvc` command is now available globally.
+
 <details>
-<summary><strong>For contributors / local development</strong></summary>
+<summary><strong>🔧 More install options</strong></summary>
+
+```bash
+# With uv (faster)
+uv pip install tm-ai
+
+# As an isolated uv tool (always on PATH, no venv needed)
+uv tool install tm-ai
+
+# With provider extras
+pip install "tm-ai[anthropic]"     # Anthropic (Claude)
+pip install "tm-ai[openai]"        # OpenAI (GPT)
+pip install "tm-ai[google]"        # Google (Gemini)
+pip install "tm-ai[all]"           # Everything
+```
+
+</details>
+
+<details>
+<summary><strong>🛠️ For contributors / local development</strong></summary>
 
 ```bash
 git clone https://github.com/mannuking/AI-Cognitive-Version-Control.git
