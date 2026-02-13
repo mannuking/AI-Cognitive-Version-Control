@@ -108,8 +108,8 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 def _get_config():
-    from cvc.proxy import _load_config
-    return _load_config()
+    from cvc.core.models import CVCConfig
+    return CVCConfig.for_project()
 
 
 def _get_engine():
@@ -329,9 +329,14 @@ def setup(provider: str | None, model: str) -> None:
 
     console.print()
 
-    # --- Initialise .cvc --------------------------------------------------
-    from cvc.core.models import CVCConfig
-    config = CVCConfig(provider=provider, model=chosen_model)
+    # --- Save global config -----------------------------------------------
+    from cvc.core.models import GlobalConfig, CVCConfig, get_global_config_dir
+    gc = GlobalConfig(provider=provider, model=chosen_model)
+    gc_path = gc.save()
+    _success(f"Global defaults saved to [dim]{gc_path}[/dim]")
+
+    # --- Initialise .cvc in current directory -----------------------------
+    config = CVCConfig.for_project(project_root=Path.cwd(), provider=provider, model=chosen_model)
     config.ensure_dirs()
 
     from cvc.core.database import ContextDatabase
@@ -341,6 +346,7 @@ def setup(provider: str | None, model: str) -> None:
         Panel(
             f"  Provider   [bold cyan]{provider}[/bold cyan]\n"
             f"  Model      [bold cyan]{chosen_model}[/bold cyan]\n"
+            f"  Config     [dim]{gc_path}[/dim]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
             f"  Objects    [dim]{config.objects_dir}[/dim]",
             border_style="green",
@@ -433,12 +439,10 @@ def serve(host: str, port: int, do_reload: bool) -> None:
 @click.option("--path", default=".", help="Project root to initialise.")
 def init(path: str) -> None:
     """Initialise a .cvc/ directory in the project."""
-    config = _get_config()
-    root = Path(path).resolve() / ".cvc"
-    config.cvc_root = root
-    config.db_path = root / "cvc.db"
-    config.objects_dir = root / "objects"
-    config.branches_dir = root / "branches"
+    from cvc.core.models import CVCConfig
+
+    project_root = Path(path).resolve()
+    config = CVCConfig.for_project(project_root=project_root)
     config.ensure_dirs()
 
     from cvc.core.database import ContextDatabase
@@ -446,7 +450,7 @@ def init(path: str) -> None:
 
     console.print(
         Panel(
-            f"  Directory  [bold]{root}[/bold]\n"
+            f"  Directory  [bold]{config.cvc_root}[/bold]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
             f"  Objects    [dim]{config.objects_dir}[/dim]",
             border_style="green",
@@ -786,6 +790,7 @@ def restore_for_checkout(git_sha: str) -> None:
 def doctor() -> None:
     """Check your CVC installation and environment."""
     from cvc.adapters import PROVIDER_DEFAULTS
+    from cvc.core.models import get_global_config_dir, GlobalConfig, discover_cvc_root
 
     _banner("System Check")
 
@@ -796,9 +801,21 @@ def doctor() -> None:
     py_ok = sys.version_info >= (3, 11)
     checks.append(("Python", py_ok, f"{py}  {'✓ 3.11+' if py_ok else '✗ Need 3.11+'}"))
 
-    # .cvc directory
-    cvc_exists = Path(".cvc").exists()
-    checks.append((".cvc/ directory", cvc_exists, "Found" if cvc_exists else "Not found — run: cvc init"))
+    # Global config
+    gc_dir = get_global_config_dir()
+    gc_exists = (gc_dir / "config.json").exists()
+    if gc_exists:
+        gc = GlobalConfig.load()
+        checks.append(("Global config", True, f"{gc_dir}  (provider={gc.provider})"))
+    else:
+        checks.append(("Global config", False, f"Not found — run: cvc setup"))
+
+    # .cvc directory (project-level)
+    project_root = discover_cvc_root()
+    if project_root:
+        checks.append(("Project .cvc/", True, f"Found at {project_root / '.cvc'}"))
+    else:
+        checks.append(("Project .cvc/", False, "Not found — run: cvc init"))
 
     # Git
     try:
@@ -842,7 +859,7 @@ def doctor() -> None:
     console.print(table)
     console.print()
 
-    all_ok = all(ok for _, ok, _ in checks[:2])  # Only Python + .cvc are required
+    all_ok = all(ok for _, ok, _ in checks[:3])  # Python + global config + .cvc/
     if all_ok:
         _success("CVC is ready to go!")
     else:

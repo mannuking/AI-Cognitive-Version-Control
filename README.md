@@ -213,7 +213,7 @@ The agent talks to CVC like any normal API. Behind the scenes, CVC manages every
 
 ### Prerequisites
 
-Python 3.11+ • uv *(recommended)* or pip • Git *(for VCS bridge features)*
+Python 3.11+ • Git *(for VCS bridge features)*
 
 </div>
 
@@ -221,21 +221,45 @@ Python 3.11+ • uv *(recommended)* or pip • Git *(for VCS bridge features)*
 
 ### 📦 Install
 
+CVC is a globally-installable CLI tool — **no need to clone the repo into your project**.
+
+```bash
+# Install globally from GitHub (recommended)
+pip install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+
+# Or with uv (faster)
+uv pip install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+
+# Or install as a uv tool (isolated, always on PATH)
+uv tool install git+https://github.com/mannuking/AI-Cognitive-Version-Control.git
+```
+
+<details>
+<summary><strong>For contributors / local development</strong></summary>
+
 ```bash
 git clone https://github.com/mannuking/AI-Cognitive-Version-Control.git
 cd AI-Cognitive-Version-Control
-
-# Using uv (recommended — installs in seconds)
-uv sync --extra dev
-
-# Or using pip
-pip install -e ".[dev]"
+uv sync --extra dev           # or: pip install -e ".[dev]"
 ```
+
+</details>
+
+<br>
+
+> **Cross-platform:** Works on **Windows**, **macOS**, and **Linux**.  
+> Global config is stored in the platform-appropriate location:
+> - Windows: `%LOCALAPPDATA%\cvc\config.json`
+> - macOS: `~/Library/Application Support/cvc/config.json`
+> - Linux: `~/.config/cvc/config.json`
 
 ### ▶️ Run
 
 ```bash
-# Interactive guided setup (picks provider, shows models, initialises .cvc/)
+# Navigate to any project where you want CVC
+cd ~/my-project
+
+# Interactive guided setup (picks provider, saves preferences, initialises .cvc/)
 cvc setup
 
 # — OR — manual setup:

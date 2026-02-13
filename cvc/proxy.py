@@ -64,49 +64,8 @@ _graph: Any = None  # Compiled LangGraph
 
 
 def _load_config() -> CVCConfig:
-    """Build configuration from environment variables with sensible defaults."""
-    provider = os.getenv("CVC_PROVIDER", "anthropic").lower()
-
-    # Resolve the API key from the provider-specific env var
-    api_key_env_map = {
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "google": "GOOGLE_API_KEY",
-        "ollama": "",  # No key needed
-    }
-    api_key_env = api_key_env_map.get(provider, "")
-    api_key = os.getenv(api_key_env, "") if api_key_env else ""
-
-    # Resolve default model per provider
-    from cvc.adapters import PROVIDER_DEFAULTS
-    default_model = PROVIDER_DEFAULTS.get(provider, {}).get("model", "claude-opus-4-6")
-
-    # Resolve upstream base URL per provider
-    upstream_url_map = {
-        "anthropic": "https://api.anthropic.com",
-        "openai": "https://api.openai.com",
-        "google": "https://generativelanguage.googleapis.com",
-        "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-    }
-    default_upstream = upstream_url_map.get(provider, "https://api.anthropic.com")
-
-    return CVCConfig(
-        cvc_root=Path(os.getenv("CVC_ROOT", ".cvc")),
-        db_path=Path(os.getenv("CVC_DB_PATH", ".cvc/cvc.db")),
-        objects_dir=Path(os.getenv("CVC_OBJECTS_DIR", ".cvc/objects")),
-        branches_dir=Path(os.getenv("CVC_BRANCHES_DIR", ".cvc/branches")),
-        default_branch=os.getenv("CVC_DEFAULT_BRANCH", "main"),
-        anchor_interval=int(os.getenv("CVC_ANCHOR_INTERVAL", "10")),
-        agent_id=os.getenv("CVC_AGENT_ID", "sofia"),
-        provider=provider,
-        upstream_base_url=os.getenv("CVC_UPSTREAM_URL", default_upstream),
-        model=os.getenv("CVC_MODEL", default_model),
-        api_key=api_key,
-        proxy_host=os.getenv("CVC_HOST", "127.0.0.1"),
-        proxy_port=int(os.getenv("CVC_PORT", "8000")),
-        vector_enabled=os.getenv("CVC_VECTOR_ENABLED", "false").lower() == "true",
-        chroma_persist_dir=Path(os.getenv("CVC_CHROMA_DIR", ".cvc/chroma")),
-    )
+    """Build configuration using the unified project discovery + global config system."""
+    return CVCConfig.for_project()
 
 
 @asynccontextmanager

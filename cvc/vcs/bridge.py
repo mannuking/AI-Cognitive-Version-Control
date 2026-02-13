@@ -154,25 +154,29 @@ class VCSBridge:
     # ------------------------------------------------------------------
 
     def _hook_scripts(self) -> dict[str, str]:
-        """Generate the shell scripts for Git hooks."""
-        # Use Python to invoke the CVC CLI
-        python_cmd = "python -m cvc.cli"
+        """
+        Generate cross-platform Git hook scripts.
 
-        post_commit = dedent(f"""\
+        Git for Windows ships its own POSIX shell (Git Bash), so ``#!/bin/sh``
+        hooks work on all platforms.  We use the globally-installed ``cvc``
+        command (not ``python -m``) so hooks work even when CVC was installed
+        into a virtual-env that's on the user's PATH.
+        """
+        post_commit = dedent("""\
             #!/bin/sh
             # CVC-HOOK: post-commit — capture cognitive state snapshot
             GIT_SHA=$(git rev-parse HEAD)
-            {python_cmd} capture-snapshot --git-sha "$GIT_SHA" 2>/dev/null || true
+            cvc capture-snapshot --git-sha "$GIT_SHA" 2>/dev/null || true
         """)
 
-        post_checkout = dedent(f"""\
+        post_checkout = dedent("""\
             #!/bin/sh
             # CVC-HOOK: post-checkout — restore cognitive state for checked-out commit
-            NEW_HEAD="$2"
+            # $1 = previous HEAD, $2 = new HEAD, $3 = flag (1 = branch checkout)
             BRANCH_CHECKOUT="$3"
             if [ "$BRANCH_CHECKOUT" = "1" ]; then
                 GIT_SHA=$(git rev-parse HEAD)
-                {python_cmd} restore-for-checkout --git-sha "$GIT_SHA" 2>/dev/null || true
+                cvc restore-for-checkout --git-sha "$GIT_SHA" 2>/dev/null || true
             fi
         """)
 

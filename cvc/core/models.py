@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import sys
 import time
 import uuid
 from enum import StrEnum
@@ -20,6 +22,80 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform directory helpers
+# ---------------------------------------------------------------------------
+
+def get_global_config_dir() -> Path:
+    """
+    Return the user-level config directory for CVC, created if needed.
+
+    - Windows:  %LOCALAPPDATA%\\cvc  (e.g. C:\\Users\\X\\AppData\\Local\\cvc)
+    - macOS:    ~/Library/Application Support/cvc
+    - Linux:    $XDG_CONFIG_HOME/cvc  (default ~/.config/cvc)
+    """
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    d = base / "cvc"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def discover_cvc_root(start: Path | None = None) -> Path | None:
+    """
+    Walk up from *start* (default: CWD) looking for a ``.cvc/`` directory,
+    similar to how Git walks up to find ``.git/``.
+
+    Returns the **project root** (parent of ``.cvc/``), or ``None``.
+    """
+    current = (start or Path.cwd()).resolve()
+    while True:
+        candidate = current / ".cvc"
+        if candidate.is_dir():
+            return current
+        parent = current.parent
+        if parent == current:
+            break  # Reached filesystem root
+        current = parent
+    return None
+
+
+class GlobalConfig(BaseModel):
+    """
+    User-level defaults stored in the global config directory.
+    Saved as ``config.json`` so new projects inherit the user's preferred
+    provider, model, and agent identity.
+    """
+    provider: str = "anthropic"
+    model: str = "claude-opus-4-6"
+    agent_id: str = "sofia"
+
+    @classmethod
+    def load(cls) -> "GlobalConfig":
+        """Load from disk, returning defaults if the file doesn't exist."""
+        path = get_global_config_dir() / "config.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return cls(**data)
+            except Exception:
+                return cls()
+        return cls()
+
+    def save(self) -> Path:
+        """Persist to disk. Returns the file path."""
+        path = get_global_config_dir() / "config.json"
+        path.write_text(
+            json.dumps(self.model_dump(), indent=2),
+            encoding="utf-8",
+        )
+        return path
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +352,77 @@ class CVCConfig(BaseModel):
         """Create all required directories."""
         for d in (self.cvc_root, self.objects_dir, self.branches_dir):
             d.mkdir(parents=True, exist_ok=True)
+
+    @classmethod
+    def for_project(cls, project_root: Path | None = None, **overrides: Any) -> "CVCConfig":
+        """
+        Build a config anchored to a specific project directory.
+
+        Resolution order (highest priority first):
+          1. Explicit ``overrides`` keyword arguments
+          2. Environment variables (CVC_PROVIDER, CVC_MODEL, …)
+          3. Global config (~/.config/cvc/config.json)
+          4. Built-in defaults
+
+        If *project_root* is ``None``, :func:`discover_cvc_root` is used to
+        walk up from CWD.  If still not found, CWD is used.
+        """
+        # Discover project root
+        if project_root is None:
+            project_root = discover_cvc_root()
+        if project_root is None:
+            project_root = Path.cwd()
+
+        root = project_root / ".cvc"
+
+        # Global config as base defaults
+        gc = GlobalConfig.load()
+
+        # Provider resolution
+        from cvc.adapters import PROVIDER_DEFAULTS  # Lazy to avoid circular import
+
+        provider = overrides.pop("provider", None) or os.getenv("CVC_PROVIDER", gc.provider)
+        defaults = PROVIDER_DEFAULTS.get(provider, {})
+
+        # API key
+        api_key_env_map = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "ollama": "",
+        }
+        api_key_env = api_key_env_map.get(provider, "")
+        api_key = os.getenv(api_key_env, "") if api_key_env else ""
+
+        # Upstream URL
+        upstream_url_map = {
+            "anthropic": "https://api.anthropic.com",
+            "openai": "https://api.openai.com",
+            "google": "https://generativelanguage.googleapis.com",
+            "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        }
+
+        return cls(
+            cvc_root=root,
+            db_path=root / "cvc.db",
+            objects_dir=root / "objects",
+            branches_dir=root / "branches",
+            default_branch=os.getenv("CVC_DEFAULT_BRANCH", "main"),
+            anchor_interval=int(os.getenv("CVC_ANCHOR_INTERVAL", "10")),
+            agent_id=overrides.pop("agent_id", None) or os.getenv("CVC_AGENT_ID", gc.agent_id),
+            provider=provider,
+            upstream_base_url=os.getenv(
+                "CVC_UPSTREAM_URL",
+                upstream_url_map.get(provider, "https://api.anthropic.com"),
+            ),
+            model=overrides.pop("model", None) or os.getenv(
+                "CVC_MODEL",
+                defaults.get("model", gc.model),
+            ),
+            api_key=api_key,
+            proxy_host=os.getenv("CVC_HOST", "127.0.0.1"),
+            proxy_port=int(os.getenv("CVC_PORT", "8000")),
+            vector_enabled=os.getenv("CVC_VECTOR_ENABLED", "false").lower() == "true",
+            chroma_persist_dir=root / "chroma",
+            **overrides,
+        )
