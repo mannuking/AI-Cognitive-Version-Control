@@ -137,31 +137,63 @@ The agent talks to CVC like any normal API. Behind the scenes, CVC manages every
 
 <div align="center">
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      YOUR MACHINE                            │
-│                                                              │
-│  ┌──────────┐        ┌──────────────────┐                   │
-│  │  Agent   │  HTTP  │   CVC Proxy       │   HTTPS          │
-│  │ (Cursor, │ ─────▶ │   localhost:8000  │ ────────▶  ☁    │
-│  │ VS Code, │ ◀───── │                   │ ◀────────       │
-│  │  Custom) │        │  ┌────────────┐   │  Claude /       │
-│  └──────────┘        │  │ LangGraph  │   │  GPT-5.2 /      │
-│                      │  │ Router     │   │  Gemini /       │
-│                      │  │            │   │  Ollama         │
-│                      │  └──────┬─────┘   │                  │
-│                      └─────────┼─────────┘                  │
-│                                │                            │
-│                   ┌────────────┼────────────┐               │
-│                   │            │            │               │
-│              ┌────▼────┐ ┌────▼────┐ ┌─────▼────┐         │
-│              │ SQLite  │ │  CAS    │ │  Chroma  │         │
-│              │ (Index) │ │ (Blobs) │ │ (Vectors)│         │
-│              └─────────┘ └─────────┘ └──────────┘         │
-│                                                             │
-│                      .cvc/ directory                        │
-│              (lives in your project, like .git)             │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '14px', 'primaryColor': '#1a1a2e', 'primaryTextColor': '#e0e0e0', 'primaryBorderColor': '#7c3aed', 'lineColor': '#7c3aed', 'secondaryColor': '#16213e', 'tertiaryColor': '#0f3460', 'edgeLabelBackground': '#1a1a2e'}}}%%
+
+flowchart LR
+    subgraph LOCAL["🖥️  YOUR MACHINE"]
+        direction TB
+
+        subgraph AGENT["  Agent  "]
+            A["🤖 Cursor / VS Code / Custom"]
+        end
+
+        subgraph PROXY["  CVC Proxy · localhost:8000  "]
+            direction TB
+            R["⚡ LangGraph Router"]
+            R -->|CVC ops| E["🧠 Cognitive Engine"]
+            R -->|passthrough| FWD["📡 Forward to LLM"]
+        end
+
+        subgraph STORAGE["  .cvc/ directory  "]
+            direction LR
+            S1["🗄️ SQLite\nCommit Graph\n& Metadata"]
+            S2["📦 CAS Blobs\nZstandard\nCompressed"]
+            S3["🔍 Chroma\nSemantic\nVectors"]
+        end
+
+        A -- "HTTP request" --> R
+        E --> S1 & S2 & S3
+    end
+
+    subgraph CLOUD["  ☁️ LLM Provider  "]
+        direction TB
+        C1["Claude"]
+        C2["GPT-5.2"]
+        C3["Gemini"]
+        C4["Ollama 🏠"]
+    end
+
+    FWD -- "HTTPS" --> CLOUD
+    CLOUD -- "response" --> R
+    R -- "response" --> A
+
+    style LOCAL fill:#0d1117,stroke:#7c3aed,stroke-width:2px,color:#e0e0e0
+    style AGENT fill:#1a1a2e,stroke:#58a6ff,stroke-width:1px,color:#e0e0e0
+    style PROXY fill:#161b22,stroke:#7c3aed,stroke-width:2px,color:#e0e0e0
+    style STORAGE fill:#161b22,stroke:#f0883e,stroke-width:1px,color:#e0e0e0
+    style CLOUD fill:#0d1117,stroke:#58a6ff,stroke-width:2px,color:#e0e0e0
+    style A fill:#1f6feb,stroke:#58a6ff,color:#ffffff
+    style R fill:#7c3aed,stroke:#a78bfa,color:#ffffff
+    style E fill:#238636,stroke:#3fb950,color:#ffffff
+    style FWD fill:#1f6feb,stroke:#58a6ff,color:#ffffff
+    style S1 fill:#21262d,stroke:#f0883e,color:#e0e0e0
+    style S2 fill:#21262d,stroke:#f0883e,color:#e0e0e0
+    style S3 fill:#21262d,stroke:#f0883e,color:#e0e0e0
+    style C1 fill:#da7756,stroke:#f0883e,color:#ffffff
+    style C2 fill:#1f6feb,stroke:#58a6ff,color:#ffffff
+    style C3 fill:#238636,stroke:#3fb950,color:#ffffff
+    style C4 fill:#6e7681,stroke:#8b949e,color:#ffffff
 ```
 
 </div>
