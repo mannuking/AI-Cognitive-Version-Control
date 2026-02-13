@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -48,7 +49,10 @@ LOGO = """[bold cyan]
 
 TAGLINE = "[dim]Cognitive Version Control — Git for the AI Mind[/dim]"
 
-VERSION = "0.1.0"
+try:
+    from cvc import __version__ as VERSION
+except ImportError:
+    VERSION = "0.4.0"
 
 
 def _banner(subtitle: str = "") -> None:
@@ -122,6 +126,209 @@ def _get_engine():
 
 
 # ---------------------------------------------------------------------------
+# IDE Auto-Detection & Auto-Configuration
+# ---------------------------------------------------------------------------
+
+def _get_ide_config_paths() -> dict[str, dict]:
+    """Return known install/config paths for detectable IDEs per platform."""
+    if sys.platform == "win32":
+        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        return {
+            "vscode": {
+                "name": "Visual Studio Code",
+                "icon": "💎",
+                "settings": appdata / "Code" / "User" / "settings.json",
+                "command": "code",
+                "can_auto_config": True,
+                "auth_type": "byok",
+            },
+            "cursor": {
+                "name": "Cursor",
+                "icon": "🖱️",
+                "settings": appdata / "Cursor" / "User" / "settings.json",
+                "command": "cursor",
+                "can_auto_config": False,
+                "auth_type": "api_key_override",
+            },
+            "windsurf": {
+                "name": "Windsurf",
+                "icon": "🏄",
+                "settings": appdata / "Windsurf" / "User" / "settings.json",
+                "command": "windsurf",
+                "can_auto_config": False,
+                "auth_type": "account_auth",
+            },
+        }
+    elif sys.platform == "darwin":
+        support = Path.home() / "Library" / "Application Support"
+        return {
+            "vscode": {
+                "name": "Visual Studio Code",
+                "icon": "💎",
+                "settings": support / "Code" / "User" / "settings.json",
+                "command": "code",
+                "can_auto_config": True,
+                "auth_type": "byok",
+            },
+            "cursor": {
+                "name": "Cursor",
+                "icon": "🖱️",
+                "settings": support / "Cursor" / "User" / "settings.json",
+                "command": "cursor",
+                "can_auto_config": False,
+                "auth_type": "api_key_override",
+            },
+            "windsurf": {
+                "name": "Windsurf",
+                "icon": "🏄",
+                "settings": support / "Windsurf" / "User" / "settings.json",
+                "command": "windsurf",
+                "can_auto_config": False,
+                "auth_type": "account_auth",
+            },
+        }
+    else:  # Linux
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+        return {
+            "vscode": {
+                "name": "Visual Studio Code",
+                "icon": "💎",
+                "settings": config_home / "Code" / "User" / "settings.json",
+                "command": "code",
+                "can_auto_config": True,
+                "auth_type": "byok",
+            },
+            "cursor": {
+                "name": "Cursor",
+                "icon": "🖱️",
+                "settings": config_home / "Cursor" / "User" / "settings.json",
+                "command": "cursor",
+                "can_auto_config": False,
+                "auth_type": "api_key_override",
+            },
+            "windsurf": {
+                "name": "Windsurf",
+                "icon": "🏄",
+                "settings": config_home / "Windsurf" / "User" / "settings.json",
+                "command": "windsurf",
+                "can_auto_config": False,
+                "auth_type": "account_auth",
+            },
+        }
+
+
+def _detect_ides() -> dict[str, dict]:
+    """Detect installed IDEs by checking config directories and PATH."""
+    ide_paths = _get_ide_config_paths()
+    detected = {}
+    for ide_key, info in ide_paths.items():
+        found = False
+        reason = ""
+        # Check if config directory exists (indicates installation)
+        settings_dir = info["settings"].parent
+        if settings_dir.exists():
+            found = True
+            reason = "config found"
+        # Check if command is on PATH
+        cmd = info.get("command")
+        if cmd and shutil.which(cmd):
+            found = True
+            reason = "installed"
+        if found:
+            detected[ide_key] = {**info, "reason": reason}
+    return detected
+
+
+def _auto_configure_vscode(settings_path: Path, endpoint: str, model: str) -> bool:
+    """
+    Auto-configure VS Code Copilot BYOK to route through CVC proxy.
+
+    Writes ``github.copilot.chat.customOAIModels`` into the user-level
+    settings.json so Copilot can use CVC as an OpenAI-compatible provider.
+    Returns True on success.
+    """
+    settings: dict = {}
+    if settings_path.exists():
+        try:
+            raw = settings_path.read_text(encoding="utf-8")
+            settings = json.loads(raw)
+        except (json.JSONDecodeError, OSError):
+            return False  # JSONC, permissions, etc.
+
+    custom_models = settings.get("github.copilot.chat.customOAIModels", {})
+    custom_models["cvc-proxy"] = {
+        "name": f"CVC Proxy ({model})",
+        "url": f"{endpoint}/v1/chat/completions",
+        "toolCalling": True,
+        "vision": False,
+        "thinking": False,
+        "maxInputTokens": 128000,
+        "maxOutputTokens": 8192,
+        "requiresAPIKey": True,
+    }
+    settings["github.copilot.chat.customOAIModels"] = custom_models
+
+    try:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(json.dumps(settings, indent=4), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def _run_ide_detection(model: str, endpoint: str = "http://127.0.0.1:8000") -> dict[str, dict]:
+    """
+    Detect IDEs and auto-configure where possible.
+
+    Called at the end of ``setup`` to wire up detected IDEs automatically.
+    Returns the detection results dict.
+    """
+    console.print("[bold cyan]  Detecting installed IDEs…[/bold cyan]")
+    console.print()
+
+    detected = _detect_ides()
+
+    if not detected:
+        _info("No IDEs auto-detected. Run [bold]cvc connect[/bold] for manual setup guides.")
+        console.print()
+        return detected
+
+    for ide_key, ide_info in detected.items():
+        _success(
+            f"{ide_info['icon']}  [bold]{ide_info['name']}[/bold] detected  "
+            f"[dim]({ide_info['reason']})[/dim]"
+        )
+
+        if ide_key == "vscode" and ide_info.get("can_auto_config"):
+            ok = _auto_configure_vscode(ide_info["settings"], endpoint, model)
+            if ok:
+                _success("   → Copilot BYOK auto-configured with CVC proxy")
+                _info("   Select [bold]CVC Proxy[/bold] in the Copilot model picker")
+                _info("   Or run [bold]cvc mcp[/bold] for native Copilot MCP integration")
+                ide_info["configured"] = True
+            else:
+                _warn("   → Could not auto-configure (settings.json may have comments)")
+                _info("   Run [bold]cvc connect vscode[/bold] for manual steps")
+                ide_info["configured"] = False
+
+        elif ide_key == "cursor":
+            _info("   → Open [bold]Cursor Settings → Models[/bold]")
+            _info(f"   → Override OpenAI Base URL → [bold cyan]{endpoint}/v1[/bold cyan]")
+            _info("   → API Key → [cyan]cvc[/cyan]")
+            _info("   → Or add CVC as an MCP server: [bold]cvc connect cursor[/bold]")
+            ide_info["configured"] = "manual"
+
+        elif ide_key == "windsurf":
+            _info("   → Windsurf uses account-based auth (no API override)")
+            _info("   → Use CVC via MCP: run [bold]cvc mcp[/bold]")
+            _info("   → Add to Windsurf MCP config: [bold]cvc connect windsurf[/bold]")
+            ide_info["configured"] = "mcp"
+
+    console.print()
+    return detected
+
+
+# ---------------------------------------------------------------------------
 # Click Group (entry point)
 # ---------------------------------------------------------------------------
 
@@ -147,6 +354,7 @@ class CvcGroup(click.Group):
             ("setup", "Interactive first-time setup"),
             ("serve", "Start the Cognitive Proxy server"),
             ("connect", "Connect your AI tool to CVC"),
+            ("mcp", "Start CVC as an MCP server"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
             ("log", "View commit history"),
@@ -175,7 +383,8 @@ class CvcGroup(click.Group):
             Panel(
                 "[bold white]Get started in 30 seconds:[/bold white]\n\n"
                 "  [cyan]$[/cyan] cvc setup              [dim]# Pick your provider & model[/dim]\n"
-                "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy[/dim]\n"
+                "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy (API key tools)[/dim]\n"
+                "  [cyan]$[/cyan] cvc mcp                [dim]# Start MCP server (auth-based IDEs)[/dim]\n"
                 "  [cyan]$[/cyan] cvc connect            [dim]# Wire up Cursor, Cline, Claude Code…[/dim]\n"
                 "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000[/dim]",
                 border_style="green",
@@ -189,7 +398,7 @@ class CvcGroup(click.Group):
         )
 
 
-@click.group(cls=CvcGroup)
+@click.group(cls=CvcGroup, invoke_without_command=True)
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging.")
 @click.version_option(VERSION, prog_name="cvc")
 @click.pass_context
@@ -197,26 +406,77 @@ def main(ctx: click.Context, verbose: bool) -> None:
     """CVC — Cognitive Version Control: Git for the AI Mind."""
     _setup_logging(verbose)
 
-    # First-run detection: if no subcommand given and no global config exists,
-    # nudge the user toward `cvc setup`.
-    if ctx.invoked_subcommand is None:
-        from cvc.core.models import get_global_config_dir
+    if ctx.invoked_subcommand is not None:
+        return  # A subcommand was given — Click handles it
 
-        gc_path = get_global_config_dir() / "config.json"
-        if not gc_path.exists():
-            console.print()
-            console.print(
-                Panel(
-                    "[bold white]Welcome to CVC![/bold white]\n\n"
-                    "Looks like this is your [bold cyan]first time[/bold cyan] here.\n"
-                    "Run the setup wizard to pick your provider, model, and API key:\n\n"
-                    "  [cyan]$[/cyan] [bold]cvc setup[/bold]",
-                    border_style="yellow",
-                    title="[bold yellow]👋 First Run[/bold yellow]",
-                    padding=(1, 3),
-                )
+    from cvc.core.models import get_global_config_dir, GlobalConfig
+
+    gc_path = get_global_config_dir() / "config.json"
+
+    if not gc_path.exists():
+        # ─── First run — welcome + auto-launch setup ─────────────────────
+        _banner()
+        console.print(
+            Panel(
+                "[bold white]Welcome to CVC![/bold white]\n\n"
+                "Looks like this is your [bold cyan]first time[/bold cyan] here.\n"
+                "Let's get you set up — it takes about 30 seconds.",
+                border_style="yellow",
+                title="[bold yellow]First Run[/bold yellow]",
+                padding=(1, 3),
             )
-            console.print()
+        )
+        console.print()
+        ctx.invoke(setup)
+        return
+
+    # ─── Returning user — interactive main menu ──────────────────────────
+    gc = GlobalConfig.load()
+    _banner()
+
+    console.print(
+        Panel(
+            f"  Provider   [bold cyan]{gc.provider}[/bold cyan]\n"
+            f"  Model      [bold cyan]{gc.model}[/bold cyan]",
+            border_style="dim green",
+            title="[bold white]Current Config[/bold white]",
+            padding=(0, 2),
+        )
+    )
+    console.print()
+    console.print("  [bold white]What would you like to do?[/bold white]\n")
+
+    menu = [
+        ("1", "Setup", "Configure provider, model & API key", "cyan"),
+        ("2", "Serve", "Start the CVC proxy server", "green"),
+        ("3", "Connect", "Wire up your AI tool to CVC", "yellow"),
+        ("4", "MCP", "Start MCP server (auth-based IDEs)", "magenta"),
+        ("5", "Status", "View current project status", "blue"),
+        ("6", "Doctor", "Health check your environment", "dim"),
+        ("7", "Help", "Show all available commands", "dim"),
+    ]
+    for num, label, desc, color in menu:
+        console.print(f"    [{color}]{num}[/{color}]  [bold]{label}[/bold]  [dim]— {desc}[/dim]")
+
+    console.print()
+
+    choice = click.prompt("  Pick an option", type=click.IntRange(1, 7), default=2)
+    console.print()
+
+    if choice == 1:
+        ctx.invoke(setup)
+    elif choice == 2:
+        ctx.invoke(serve)
+    elif choice == 3:
+        ctx.invoke(connect)
+    elif choice == 4:
+        ctx.invoke(mcp)
+    elif choice == 5:
+        ctx.invoke(status)
+    elif choice == 6:
+        ctx.invoke(doctor)
+    elif choice == 7:
+        ctx.command.format_help(ctx, click.HelpFormatter())
 
 
 # ---------------------------------------------------------------------------
@@ -619,20 +879,31 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         )
     )
 
-    # ─── Next Steps ──────────────────────────────────────────────────────
-    console.print()
-    console.print(
-        Panel(
-            "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy server[/dim]\n"
-            "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000/v1/chat/completions[/dim]\n"
-            "\n"
-            "  [dim]That's it. Your agent now has save, branch, rewind & merge.[/dim]",
-            border_style="blue",
-            title="[bold blue]Next Steps[/bold blue]",
-            padding=(1, 2),
-        )
+    # ─── IDE Auto-Detection & Configuration ─────────────────────────────
+    _run_ide_detection(chosen_model)
+
+    # ─── Offer to start the proxy ────────────────────────────────────────
+    start_now = click.confirm(
+        "  Start the CVC proxy server now?",
+        default=True,
     )
-    console.print()
+
+    if start_now:
+        console.print()
+        click.get_current_context().invoke(serve)
+    else:
+        console.print()
+        console.print(
+            Panel(
+                "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy whenever you're ready[/dim]\n"
+                "  [cyan]$[/cyan] cvc connect             [dim]# Tool-specific setup guides[/dim]\n"
+                "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000/v1/chat/completions[/dim]",
+                border_style="blue",
+                title="[bold blue]When You're Ready[/bold blue]",
+                padding=(1, 2),
+            )
+        )
+        console.print()
 
 
 # ---------------------------------------------------------------------------
@@ -646,17 +917,30 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "icon": "💎",
         "category": "IDE",
         "steps": [
-            "VS Code ships with [bold]GitHub Copilot[/bold] as its integrated AI agent.",
-            "Use [bold]BYOK[/bold] (Bring Your Own Key) to route Copilot through CVC:",
+            "[bold]VS Code GitHub Copilot uses GitHub login authentication.[/bold]",
+            "The native Copilot agent cannot be redirected to a custom endpoint.",
+            "However, VS Code supports [bold]3 ways[/bold] to use CVC:",
             "",
-            "  1. Open [bold]Ctrl+Shift+P[/bold] → [bold]Chat: Manage Language Models[/bold]",
+            "[bold cyan]Option 1: Copilot BYOK (Bring Your Own Key)[/bold cyan]",
+            "  Available on Copilot Individual plans (Free, Pro, Pro+):",
+            "  1. [bold]Ctrl+Shift+P[/bold] → [bold]Chat: Manage Language Models[/bold]",
             "  2. Select [bold]OpenAI Compatible[/bold] as provider",
-            "  3. Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "  4. Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
-            "  5. Set Model → [cyan]{model}[/cyan]",
+            "  3. Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "  4. API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "  5. Select model → [cyan]{model}[/cyan]",
             "",
-            "[dim]Or install Continue.dev / Cline extensions (see IDE Extensions)[/dim]",
-            "[dim]BYOK is available on Copilot Individual plans only[/dim]",
+            "[bold cyan]Option 2: MCP Server (Works with native Copilot)[/bold cyan]",
+            "  Add to VS Code settings.json or .vscode/mcp.json:",
+            '     [cyan]{{"mcp": {{"servers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}}}[/cyan]',
+            "  CVC tools will be available as MCP tools in Copilot agent mode.",
+            "",
+            "[bold cyan]Option 3: Extensions (Continue.dev / Cline)[/bold cyan]",
+            "  Install from VS Code Marketplace and configure with:",
+            "  Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "  API Key → [cyan]cvc[/cyan]",
+            "",
+            "[dim]BYOK is not available on Copilot Business/Enterprise plans.[/dim]",
+            "[dim]For Enterprise, use MCP or an extension instead.[/dim]",
         ],
     },
     "antigravity": {
@@ -664,23 +948,28 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "icon": "🚀",
         "category": "IDE",
         "steps": [
-            "Antigravity is Google's agent-first IDE powered by Gemini 3.",
-            "It uses Gemini natively but supports extensions via Open VSX.",
-            "To route through CVC:",
+            "[bold]Antigravity uses Google account authentication[/bold] — you cannot",
+            "override the LLM API endpoint directly. Use CVC via [bold]MCP[/bold] instead.",
             "",
-            "  1. Start CVC with [bold]--host 0.0.0.0[/bold] (or use a tunnel)",
-            "  2. Open your Antigravity workspace",
-            "  3. Install [bold]Continue.dev[/bold] or [bold]Cline[/bold] from Open VSX",
-            "     (Antigravity is Code OSS-based)",
-            "  4. Configure the extension with:",
+            "[bold cyan]Option 1: MCP Server (Recommended)[/bold cyan]",
+            "  1. Click [bold]⋯[/bold] in Antigravity's agent panel → [bold]Manage MCP Servers[/bold]",
+            "  2. Click [bold]View raw config[/bold]",
+            "  3. Add the CVC MCP server:",
+            "",
+            '     [cyan]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/cyan]',
+            "",
+            "  4. The CVC tools (commit, branch, merge, restore, status, log)",
+            "     will appear as available tools in Antigravity's agent.",
+            "",
+            "[bold cyan]Option 2: Continue.dev Extension[/bold cyan]",
+            "  Antigravity is Code OSS-based and supports Open VSX extensions.",
+            "  Install [bold]Continue.dev[/bold] from Open VSX and configure:",
             "     Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
             "     API Key  → [cyan]cvc[/cyan]",
             "     Model    → [cyan]{model}[/cyan]",
             "",
-            "You can also add a CVC [bold]MCP server[/bold] in the Agent Manager:",
-            "  Edit [bold]mcp_config.json[/bold] in your workspace settings",
-            "",
-            "[dim]Direct API override is not yet supported natively[/dim]",
+            "[dim]Antigravity's native Gemini agent uses Google auth internally.[/dim]",
+            "[dim]MCP is the only way to add CVC to the native agent flow.[/dim]",
         ],
     },
     "cursor": {
@@ -688,11 +977,44 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "icon": "🖱️",
         "category": "IDE",
         "steps": [
-            "Open Cursor → Settings (⚙️) → Models",
-            "Scroll to [bold]OpenAI API Keys[/bold] → paste any dummy key (e.g. [cyan]cvc[/cyan])",
-            "Toggle [bold]\"Override OpenAI Base URL\"[/bold] → set to:",
-            "  [bold cyan]{endpoint}/v1[/bold cyan]",
-            "Select your model and start coding!",
+            "[bold]Cursor supports API key + base URL override.[/bold]",
+            "",
+            "  1. Open Cursor → Settings (⚙️) → [bold]Models[/bold]",
+            "  2. Click [bold]Add OpenAI API Key[/bold] → paste [cyan]cvc[/cyan]",
+            "  3. Enable [bold]Override OpenAI Base URL[/bold] → set to:",
+            "     [bold cyan]{endpoint}/v1[/bold cyan]",
+            "  4. Select your model and start coding!",
+            "",
+            "[bold cyan]Alternative: MCP Server[/bold cyan]",
+            "  You can also add CVC as an MCP server in Cursor:",
+            "  Settings → MCP Servers → Add:",
+            '     [cyan]{{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}[/cyan]',
+            "",
+            "[dim]Note: Cursor's built-in models use subscription auth internally.[/dim]",
+            "[dim]The override route above replaces those with CVC-proxied calls.[/dim]",
+        ],
+    },
+    "windsurf": {
+        "name": "Windsurf",
+        "icon": "🏄",
+        "category": "IDE",
+        "steps": [
+            "[bold]Windsurf uses account-based authentication[/bold] — you cannot",
+            "override the LLM API endpoint directly. Use CVC via [bold]MCP[/bold].",
+            "",
+            "[bold cyan]MCP Server (Recommended)[/bold cyan]",
+            "  1. Open Windsurf → click [bold]⋯[/bold] in Cascade panel",
+            "  2. Go to [bold]MCP Settings[/bold] → [bold]Configure[/bold]",
+            "  3. Add the CVC MCP server:",
+            "",
+            '     [cyan]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/cyan]',
+            "",
+            "  4. CVC tools (commit, branch, merge, restore, status, log)",
+            "     will be available to Windsurf's Cascade agent.",
+            "",
+            "[dim]Windsurf (formerly Codeium) is now owned by OpenAI.[/dim]",
+            "[dim]The built-in Cascade agent authenticates via Windsurf account.[/dim]",
+            "[dim]MCP is the supported way to extend its capabilities.[/dim]",
         ],
     },
     # ── IDE Extensions ────────────────────────────────────────────────────
@@ -747,26 +1069,45 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "icon": "🟠",
         "category": "CLI Tool",
         "steps_unix": [
-            "Set the environment variables before launching Claude Code:",
+            "[bold]Claude Code now works natively with CVC![/bold]",
+            "CVC serves the Anthropic Messages API at [bold]/v1/messages[/bold],",
+            "so Claude Code works without any format translation.",
+            "",
+            "[bold cyan]Quick start:[/bold cyan]",
             "",
             "  [cyan]export ANTHROPIC_BASE_URL=\"{endpoint}\"[/cyan]",
-            "  [cyan]export ANTHROPIC_API_KEY=\"your-key\"[/cyan]",
             "  [cyan]claude[/cyan]",
             "",
-            "Or add to [bold]~/.claude/settings.json[/bold]:",
+            "Your existing ANTHROPIC_API_KEY is passed through to the",
+            "upstream Anthropic API. CVC intercepts the conversation for",
+            "cognitive versioning and forwards everything else.",
+            "",
+            "[bold cyan]Or add to ~/.claude/settings.json:[/bold cyan]",
             "",
             "  [cyan]{{[/cyan]",
             "    [cyan]\"env\": {{[/cyan]",
             "      [cyan]\"ANTHROPIC_BASE_URL\": \"{endpoint}\"[/cyan]",
             "    [cyan]}}[/cyan]",
             "  [cyan]}}[/cyan]",
+            "",
+            "[dim]Auth pass-through: CVC forwards your API key to Anthropic.[/dim]",
+            "[dim]No need to store your key in CVC — just set ANTHROPIC_API_KEY.[/dim]",
         ],
         "steps_win": [
-            "Set the environment variables before launching Claude Code:",
+            "[bold]Claude Code now works natively with CVC![/bold]",
+            "CVC serves the Anthropic Messages API at [bold]/v1/messages[/bold].",
+            "",
+            "[bold cyan]Quick start:[/bold cyan]",
             "",
             "  [cyan]$env:ANTHROPIC_BASE_URL = \"{endpoint}\"[/cyan]",
-            "  [cyan]$env:ANTHROPIC_API_KEY = \"your-key\"[/cyan]",
             "  [cyan]claude[/cyan]",
+            "",
+            "Your existing ANTHROPIC_API_KEY is passed through to the",
+            "upstream Anthropic API. CVC intercepts the conversation for",
+            "cognitive versioning and forwards everything else.",
+            "",
+            "[dim]Auth pass-through: CVC forwards your API key to Anthropic.[/dim]",
+            "[dim]No need to store your key in CVC — just set ANTHROPIC_API_KEY.[/dim]",
         ],
     },
     "gemini-cli": {
@@ -915,8 +1256,61 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "     API Key  → [cyan]cvc[/cyan]",
             "     Model    → [cyan]{model}[/cyan]",
             "",
+            "[bold cyan]Alternative: MCP Server[/bold cyan]",
+            "  If your Firebase Studio workspace has terminal access:",
+            '  Add CVC as an MCP server in [bold].vscode/mcp.json[/bold]',
+            "",
             "[dim]Firebase Studio does not support direct API endpoint override.[/dim]",
-            "[dim]Use extensions for custom model routing.[/dim]",
+            "[dim]Use extensions or MCP for custom model routing.[/dim]",
+        ],
+    },
+    # ── CLI Tools (additional) ────────────────────────────────────────────
+    "codex-cli": {
+        "name": "OpenAI Codex CLI",
+        "icon": "⌨️",
+        "category": "CLI Tool",
+        "steps_unix": [
+            "[bold]Codex CLI supports custom model providers.[/bold]",
+            "Add CVC as a proxy provider in your config:",
+            "",
+            "[bold cyan]Option 1: Environment variables[/bold cyan]",
+            "",
+            "  [cyan]export OPENAI_API_BASE={endpoint}/v1[/cyan]",
+            "  [cyan]export OPENAI_API_KEY=cvc[/cyan]",
+            "  [cyan]codex[/cyan]",
+            "",
+            "[bold cyan]Option 2: Config file (~/.codex/config.toml)[/bold cyan]",
+            "",
+            "  [cyan]model_provider = \"cvc\"[/cyan]",
+            "",
+            "  [cyan][model_providers.cvc][/cyan]",
+            "  [cyan]name = \"CVC Proxy\"[/cyan]",
+            '  [cyan]base_url = "{endpoint}"[/cyan]',
+            '  [cyan]env_key = "OPENAI_API_KEY"[/cyan]',
+            "",
+            "Your API key is passed through to the upstream provider.",
+            "",
+            "[dim]Works with: codex, codex --provider openai, and custom providers.[/dim]",
+        ],
+        "steps_win": [
+            "[bold]Codex CLI supports custom model providers.[/bold]",
+            "",
+            "[bold cyan]Option 1: Environment variables[/bold cyan]",
+            "",
+            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
+            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
+            "  [cyan]codex[/cyan]",
+            "",
+            "[bold cyan]Option 2: Config file (~/.codex/config.toml)[/bold cyan]",
+            "",
+            "  [cyan]model_provider = \"cvc\"[/cyan]",
+            "",
+            "  [cyan][model_providers.cvc][/cyan]",
+            "  [cyan]name = \"CVC Proxy\"[/cyan]",
+            '  [cyan]base_url = "{endpoint}"[/cyan]',
+            '  [cyan]env_key = "OPENAI_API_KEY"[/cyan]',
+            "",
+            "[dim]Works with: codex, codex --provider openai, and custom providers.[/dim]",
         ],
     },
 }
@@ -1015,9 +1409,13 @@ def serve(host: str, port: int, do_reload: bool) -> None:
             f"  Base URL   [bold cyan]{endpoint}/v1[/bold cyan]\n"
             f"  API Key    [cyan]cvc[/cyan]  [dim](any non-empty string works)[/dim]\n"
             f"  Model      [cyan]{config.model}[/cyan]\n\n"
-            "  [dim]Works with: VS Code, Antigravity, Cursor, Cline, Continue.dev,\n"
-            "  Claude Code, Gemini CLI, Kiro CLI, Aider, Open WebUI,\n"
-            "  Firebase Studio, and any OpenAI-compatible tool.[/dim]\n\n"
+            f"  [bold white]Claude Code CLI:[/bold white]\n"
+            f"  [cyan]export ANTHROPIC_BASE_URL={endpoint}[/cyan]\n\n"
+            "  [bold white]Auth-based IDEs (Antigravity, Windsurf, native Copilot):[/bold white]\n"
+            "  Run [bold]cvc mcp[/bold] to start the MCP server instead.\n\n"
+            "  [dim]Works with: VS Code, Antigravity, Cursor, Windsurf, Cline,\n"
+            "  Continue.dev, Claude Code, Codex CLI, Gemini CLI, Kiro CLI,\n"
+            "  Aider, Open WebUI, Firebase Studio, and any OpenAI-compatible tool.[/dim]\n\n"
             "  [dim]Run[/dim] [bold]cvc connect[/bold] [dim]for tool-specific setup instructions.[/dim]",
             border_style="blue",
             title="[bold blue]Connect Your Tools[/bold blue]",
@@ -1054,8 +1452,10 @@ def connect(tool: str | None, host: str, port: int) -> None:
       cvc connect vscode
       cvc connect antigravity
       cvc connect cursor
+      cvc connect windsurf
       cvc connect cline
       cvc connect claude-code
+      cvc connect codex-cli
       cvc connect gemini-cli
       cvc connect kiro-cli
       cvc connect aider
@@ -1113,6 +1513,10 @@ def connect(tool: str | None, host: str, port: int) -> None:
             "openwebui": "open-webui",
             "firebase": "firebase-studio",
             "idx": "firebase-studio",
+            "windsurf": "windsurf",
+            "codeium": "windsurf",
+            "codex": "codex-cli",
+            "openai-codex": "codex-cli",
         }
         key = aliases.get(key, key)
 
@@ -1525,6 +1929,64 @@ def restore_for_checkout(git_sha: str) -> None:
             _success(f"Restored CVC state: [yellow]{cvc_hash[:12]}[/yellow]")
 
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# mcp (MCP server mode for auth-based IDEs)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "sse"], case_sensitive=False),
+    default="stdio",
+    help="MCP transport: stdio (default) or sse.",
+)
+@click.option("--host", default="127.0.0.1", help="SSE transport bind host.")
+@click.option("--port", default=8001, type=int, help="SSE transport bind port.")
+def mcp(transport: str, host: str, port: int) -> None:
+    """Start CVC as an MCP server for AI agent IDEs.
+
+    MCP (Model Context Protocol) lets authentication-based IDEs like
+    Antigravity, Windsurf, GitHub Copilot (native), and Cursor use
+    CVC's cognitive versioning without API endpoint redirection.
+
+    The IDE's built-in agent calls CVC tools (commit, branch, merge,
+    restore, status, log) through the MCP protocol.
+
+    \b
+    Transports:
+      stdio  — IDE launches 'cvc mcp' as a subprocess (default)
+      sse    — HTTP Server-Sent Events on localhost:8001
+
+    \b
+    IDE configuration examples:
+
+      VS Code (settings.json):
+        "mcp": {"servers": {"cvc": {"command": "cvc", "args": ["mcp"]}}}
+
+      Antigravity / Windsurf / Cursor (MCP config):
+        {"mcpServers": {"cvc": {"command": "cvc", "args": ["mcp"]}}}
+    """
+    from cvc.mcp_server import run_mcp_stdio, run_mcp_sse
+
+    if transport == "sse":
+        _banner("MCP Server (SSE)")
+        console.print(
+            Panel(
+                f"  Transport  [bold cyan]SSE[/bold cyan]\n"
+                f"  Endpoint   [bold cyan]http://{host}:{port}/sse[/bold cyan]\n"
+                f"  Messages   [bold cyan]http://{host}:{port}/messages[/bold cyan]",
+                border_style="green",
+                title="[bold green]MCP Server[/bold green]",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+        run_mcp_sse(host=host, port=port)
+    else:
+        # stdio transport — no banner (stdout is the protocol channel)
+        run_mcp_stdio()
 
 
 # ---------------------------------------------------------------------------

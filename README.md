@@ -356,9 +356,22 @@ cvc install-hooks
 
 ### 🔌 Connect Your Agent
 
+CVC supports **every major AI coding tool** — whether it uses API keys or login-based authentication.
+
+#### API-Based Tools (Proxy Mode)
+
 Point your AI agent's API base URL to **`http://127.0.0.1:8000`**
 
-CVC exposes an **OpenAI-compatible** `/v1/chat/completions` endpoint — any tool that speaks OpenAI format works out of the box.
+CVC exposes **OpenAI-compatible** (`/v1/chat/completions`) AND **Anthropic-native** (`/v1/messages`) endpoints.
+
+#### Auth-Based Tools (MCP Mode)
+
+For IDEs that use login authentication (Antigravity, Windsurf, native Copilot), CVC runs as an **MCP server**:
+
+```bash
+cvc mcp                 # Start MCP server (stdio transport)
+cvc mcp --transport sse # Start MCP server (HTTP/SSE transport)
+```
 
 <br>
 
@@ -367,31 +380,65 @@ CVC exposes an **OpenAI-compatible** `/v1/chat/completions` endpoint — any too
 <table>
 <thead>
 <tr>
-<th width="30%">Tool</th>
-<th width="70%">How to Connect</th>
+<th width="25%">Tool</th>
+<th width="15%">Auth Type</th>
+<th width="60%">How to Connect</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>🎯 Cursor</strong></td>
-<td>Set CVC as the API base URL in settings</td>
+<td><strong>💎 VS Code + Copilot</strong></td>
+<td>GitHub Login</td>
+<td>BYOK: <code>Ctrl+Shift+P → Manage Models → OpenAI Compatible</code> or MCP: <code>cvc mcp</code></td>
 </tr>
 <tr>
-<td><strong>💻 VS Code + Copilot</strong></td>
-<td>Route through CVC proxy</td>
+<td><strong>🚀 Antigravity</strong></td>
+<td>Google Login</td>
+<td>MCP only: add <code>cvc</code> in MCP settings → <code>cvc mcp</code></td>
 </tr>
 <tr>
-<td><strong>🔧 Custom Agents</strong></td>
-<td>Standard OpenAI SDK, point to <code>localhost:8000</code></td>
+<td><strong>🖱️ Cursor</strong></td>
+<td>API Key Override</td>
+<td>Settings → Models → Override Base URL → <code>http://127.0.0.1:8000/v1</code></td>
+</tr>
+<tr>
+<td><strong>🏄 Windsurf</strong></td>
+<td>Account Login</td>
+<td>MCP only: add <code>cvc</code> in Cascade MCP settings → <code>cvc mcp</code></td>
+</tr>
+<tr>
+<td><strong>🟠 Claude Code CLI</strong></td>
+<td>API Key (pass-through)</td>
+<td><code>export ANTHROPIC_BASE_URL=http://127.0.0.1:8000</code> — native <code>/v1/messages</code></td>
+</tr>
+<tr>
+<td><strong>⌨️ Codex CLI</strong></td>
+<td>API Key (pass-through)</td>
+<td><code>model_provider = "cvc"</code> in <code>~/.codex/config.toml</code></td>
+</tr>
+<tr>
+<td><strong>🔄 Continue.dev / 🤖 Cline</strong></td>
+<td>API Key</td>
+<td>Base URL → <code>http://127.0.0.1:8000/v1</code>, API Key → <code>cvc</code></td>
+</tr>
+<tr>
+<td><strong>🛠️ Aider / 🌐 Open WebUI</strong></td>
+<td>API Key</td>
+<td>Standard OpenAI-compatible endpoint</td>
 </tr>
 <tr>
 <td><strong>🦜 LangChain / CrewAI / AutoGen</strong></td>
-<td>Use CVC's 4 function-calling tools (<code>GET /cvc/tools</code>)</td>
+<td>API Key</td>
+<td>Use CVC's function-calling tools (<code>GET /cvc/tools</code>)</td>
 </tr>
 </tbody>
 </table>
 
 </div>
+
+> **Auth pass-through:** When Claude Code or Codex CLI sends its own API key, CVC forwards it to the upstream provider. No need to store API keys in CVC for these tools.
+
+Run `cvc connect` for interactive, tool-specific setup instructions.
 
 <br>
 
@@ -421,7 +468,15 @@ CVC exposes an **OpenAI-compatible** `/v1/chat/completions` endpoint — any too
 </tr>
 <tr>
 <td><code>cvc serve</code></td>
-<td>Start the Cognitive Proxy</td>
+<td>Start the Cognitive Proxy (API-based tools)</td>
+</tr>
+<tr>
+<td><code>cvc mcp</code></td>
+<td>Start MCP server (auth-based IDEs)</td>
+</tr>
+<tr>
+<td><code>cvc connect</code></td>
+<td>Interactive tool connection wizard</td>
 </tr>
 <tr>
 <td><code>cvc status</code></td>
@@ -454,6 +509,10 @@ CVC exposes an **OpenAI-compatible** `/v1/chat/completions` endpoint — any too
 <tr>
 <td><code>cvc capture-snapshot</code></td>
 <td>Link current Git commit to CVC state</td>
+</tr>
+<tr>
+<td><code>cvc doctor</code></td>
+<td>Health check your environment</td>
 </tr>
 </tbody>
 </table>

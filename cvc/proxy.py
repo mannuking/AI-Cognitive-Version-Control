@@ -27,7 +27,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from cvc.adapters import BaseAdapter, create_adapter
 from cvc.core.database import ContextDatabase
@@ -84,6 +84,10 @@ async def lifespan(app: FastAPI):
         model=_config.model,
         base_url=_config.upstream_base_url,
     )
+
+    # Auth mode — determines whether CVC uses its own key or passes through
+    # the client's auth header to the upstream provider.
+    app.state.auth_mode = _config.auth_mode if hasattr(_config, 'auth_mode') else 'stored'
     _bridge = VCSBridge(_config, _db)
 
     # Build and compile the LangGraph state machine
@@ -112,10 +116,15 @@ async def lifespan(app: FastAPI):
 # FastAPI App
 # ---------------------------------------------------------------------------
 
+try:
+    from cvc import __version__ as _cvc_version
+except ImportError:
+    _cvc_version = "0.3.0"
+
 app = FastAPI(
     title="CVC — Cognitive Version Control Proxy",
     description="Git for the AI Mind. Intercepts LLM API calls and manages cognitive state.",
-    version="0.1.0",
+    version=_cvc_version,
     lifespan=lifespan,
 )
 
@@ -132,15 +141,21 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 @app.post("/v1/chat/completions", response_model=None)
-async def chat_completions(request: ChatCompletionRequest) -> JSONResponse:
+async def chat_completions(raw_request: Request) -> JSONResponse:
     """
     The primary interception point.
 
     Every request from the agent (Cursor / VS Code / CLI) flows through here.
     The LangGraph state machine decides whether it's a CVC command or a
     standard generation.
+
+    Supports auth pass-through: if the client sends an Authorization header,
+    CVC can forward it to the upstream provider.
     """
     assert _engine is not None and _graph is not None and _adapter is not None
+
+    body = await raw_request.json()
+    request = ChatCompletionRequest(**body)
 
     # 1. Run the request through the LangGraph state machine
     initial_state: CVCGraphState = {
@@ -323,7 +338,193 @@ async def vcs_install_hooks() -> dict[str, str]:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "cvc-proxy", "version": "0.1.0"}
+    return {"status": "ok", "service": "cvc-proxy", "version": _cvc_version}
+
+
+# ---------------------------------------------------------------------------
+# Auth Pass-Through Middleware
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def auth_passthrough_middleware(request: Request, call_next):
+    """
+    When auth_mode is 'pass_through', extract the client's Bearer token
+    (or x-api-key header) and stash it on request.state so downstream
+    handlers can forward it to the upstream provider.
+
+    This enables tools like Claude Code CLI (which send their own
+    ANTHROPIC_API_KEY) and Codex CLI to work through CVC without CVC
+    needing its own stored key for that provider.
+    """
+    # Extract client auth from the incoming request
+    auth_header = request.headers.get("authorization", "")
+    x_api_key = request.headers.get("x-api-key", "")
+    request.state.client_api_key = ""
+    request.state.client_bearer = ""
+
+    if x_api_key:
+        request.state.client_api_key = x_api_key
+    if auth_header.lower().startswith("bearer "):
+        request.state.client_bearer = auth_header[7:].strip()
+
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic Messages API — Native Claude Code CLI Support
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request) -> JSONResponse:
+    """
+    Anthropic-native Messages API endpoint.
+
+    Claude Code CLI sends requests to ANTHROPIC_BASE_URL + '/v1/messages'
+    using the Anthropic wire format (not OpenAI). This endpoint:
+
+    1. Accepts the Anthropic Messages API format natively.
+    2. Runs CVC interception (command detection, context enrichment).
+    3. Forwards to the upstream Anthropic API (or configured provider).
+    4. Returns the response in Anthropic Messages format.
+
+    This means users can simply set:
+        export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
+    and Claude Code CLI works with full CVC cognitive versioning.
+    """
+    assert _engine is not None and _config is not None
+
+    body = await request.json()
+
+    # --- Convert Anthropic format → internal OpenAI format ---
+    messages_in = body.get("messages", [])
+    system_text = body.get("system", "")
+
+    # Build OpenAI-style messages list
+    openai_messages: list[dict[str, Any]] = []
+    if system_text:
+        if isinstance(system_text, list):
+            # Anthropic system can be a list of content blocks
+            sys_parts = [b.get("text", "") for b in system_text if b.get("type") == "text"]
+            system_text = "\n".join(sys_parts)
+        openai_messages.append({"role": "system", "content": system_text})
+
+    for msg in messages_in:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        # Anthropic content can be string or list of blocks
+        if isinstance(content, list):
+            text_parts = [b.get("text", "") for b in content if b.get("type") == "text"]
+            content = "\n".join(text_parts)
+        openai_messages.append({"role": role, "content": content})
+
+    # Build ChatCompletionRequest for the CVC pipeline
+    internal_request = ChatCompletionRequest(
+        model=body.get("model", _config.model),
+        messages=[ChatMessage(**m) for m in openai_messages],
+        temperature=body.get("temperature", 0.7),
+        max_tokens=body.get("max_tokens", 4096),
+    )
+
+    # Convert tools if present
+    anthropic_tools = body.get("tools", [])
+    if anthropic_tools:
+        # Convert Anthropic tool format → OpenAI tool format for CVC pipeline
+        openai_tools = []
+        for t in anthropic_tools:
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": t.get("name", ""),
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                },
+            })
+        internal_request.tools = openai_tools
+
+    # --- Run through CVC state machine (same as /v1/chat/completions) ---
+    assert _graph is not None
+    initial_state: CVCGraphState = {
+        "request": internal_request,
+        "is_cvc_command": False,
+        "cvc_tool_name": "",
+        "cvc_tool_args": {},
+        "response": None,
+        "cvc_result": None,
+        "active_branch": _engine.active_branch,
+        "head_hash": _engine.head_hash or "",
+        "committed_prefix_len": 0,
+    }
+    result_state = _graph.invoke(initial_state)
+
+    # If CVC command, wrap result in Anthropic format
+    if result_state.get("is_cvc_command") and result_state.get("cvc_result"):
+        cvc_result: CVCOperationResponse = result_state["cvc_result"]
+        return JSONResponse(content={
+            "id": f"msg_cvc_{int(time.time())}",
+            "type": "message",
+            "role": "assistant",
+            "model": internal_request.model,
+            "content": [{
+                "type": "text",
+                "text": json.dumps(cvc_result.model_dump(), indent=2),
+            }],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        }, headers={"X-CVC-Operation": cvc_result.operation})
+
+    # --- Forward to upstream Anthropic API ---
+    # Use client's API key if available (pass-through), else use stored key
+    client_api_key = getattr(request.state, 'client_api_key', '') or \
+                     getattr(request.state, 'client_bearer', '')
+    upstream_key = client_api_key or _config.api_key
+
+    if not upstream_key:
+        raise HTTPException(
+            status_code=401,
+            detail="No API key available. Either pass x-api-key / Authorization header, "
+                   "or configure an API key via 'cvc setup'.",
+        )
+
+    import httpx
+    headers = {
+        "x-api-key": upstream_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    # Forward anthropic-beta if present
+    beta = request.headers.get("anthropic-beta")
+    if beta:
+        headers["anthropic-beta"] = beta
+
+    # Build the upstream body — pass through most fields as-is
+    upstream_body = dict(body)
+    # Inject CVC context enrichment
+    committed_prefix_len = result_state.get("committed_prefix_len", 0)
+
+    try:
+        upstream_url = _config.upstream_base_url.rstrip("/")
+        if _config.provider == "anthropic":
+            upstream_url = "https://api.anthropic.com"
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{upstream_url}/v1/messages",
+                json=upstream_body,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.error("Upstream Anthropic error: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Upstream error: {exc}") from exc
+
+    # Record assistant response in CVC context
+    content_blocks = data.get("content", [])
+    text_parts = [b["text"] for b in content_blocks if b.get("type") == "text"]
+    if text_parts:
+        _engine.push_chat_message(ChatMessage(role="assistant", content="\n".join(text_parts)))
+
+    return JSONResponse(content=data)
 
 
 # ---------------------------------------------------------------------------
