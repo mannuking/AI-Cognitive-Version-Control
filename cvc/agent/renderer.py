@@ -43,7 +43,8 @@ THEME = {
     "bg": "#2C0000",            # Deep maroon background ref
 }
 
-console = Console()
+# Use force_terminal=True on Windows to ensure proper unicode rendering
+console = Console(force_terminal=sys.stdout.isatty())
 
 
 def agent_banner(version: str, provider: str, model: str, branch: str, workspace: str) -> None:
