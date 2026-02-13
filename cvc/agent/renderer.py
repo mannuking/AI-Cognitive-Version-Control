@@ -57,11 +57,12 @@ console = Console(force_terminal=sys.stdout.isatty())
 def agent_banner(version: str, provider: str, model: str, branch: str, workspace: str) -> None:
     """Print the CVC Agent startup banner."""
     logo = Text()
-    logo.append("   ██████ ██    ██  ██████\n", style=THEME["primary_bright"])
-    logo.append("  ██      ██    ██ ██\n", style=THEME["primary_bright"])
-    logo.append("  ██      ██    ██ ██\n", style=THEME["primary"])
-    logo.append("  ██       ██  ██  ██\n", style=THEME["primary"])
-    logo.append("   ██████   ████    ██████", style=THEME["primary_dim"])
+    logo.append(" ██████╗ ██╗   ██╗  ██████╗\n", style=THEME["primary_bright"])
+    logo.append("██╔════╝ ██║   ██║ ██╔════╝\n", style=THEME["primary_bright"])
+    logo.append("██║      ██║   ██║ ██║\n", style=THEME["primary"])
+    logo.append("██║      ╚██╗ ██╔╝ ██║\n", style=THEME["primary"])
+    logo.append("╚██████╗  ╚████╔╝  ╚██████╗\n", style=THEME["primary_dim"])
+    logo.append(" ╚═════╝   ╚═══╝    ╚═════╝", style=THEME["primary_dim"])
 
     tagline = Text("Cognitive Version Control Agent", style=THEME["text_dim"])
     subtitle = Text("Time Machine for AI Agents — Now in YOUR Terminal", style=f"bold {THEME['accent_soft']}")
