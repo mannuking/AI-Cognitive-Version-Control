@@ -261,32 +261,23 @@ def render_tool_call_start(tool_name: str, args_summary: str) -> None:
 
 
 def render_tool_call_result(tool_name: str, result: str, elapsed: float) -> None:
-    """Show the result of a tool call."""
-    # Truncate for display
-    display = result
-    if len(display) > 500:
-        display = display[:500] + f"\n    ... ({len(result) - 500} more chars)"
-
+    """Show the result of a tool call — compact one-liner."""
     elapsed_str = f"{elapsed:.1f}s" if elapsed >= 0.1 else f"{elapsed * 1000:.0f}ms"
+
+    # Build a brief summary (first meaningful line, heavily truncated)
+    summary = ""
+    for line in result.split("\n"):
+        stripped = line.strip()
+        if stripped:
+            summary = stripped[:80]
+            break
 
     console.print(
         f"  [{THEME['success']}]✓[/{THEME['success']}] "
         f"[{THEME['text_dim']}]{elapsed_str}[/{THEME['text_dim']}]"
     )
-
-    # Show a compact result
-    if display.count("\n") <= 5:
-        for line in display.split("\n"):
-            console.print(f"    [{THEME['tool_result']}]{line}[/{THEME['tool_result']}]")
-    else:
-        # Show first and last few lines
-        lines = display.split("\n")
-        for line in lines[:3]:
-            console.print(f"    [{THEME['tool_result']}]{line}[/{THEME['tool_result']}]")
-        if len(lines) > 6:
-            console.print(f"    [{THEME['text_dim']}]... ({len(lines) - 6} more lines)[/{THEME['text_dim']}]")
-        for line in lines[-3:]:
-            console.print(f"    [{THEME['tool_result']}]{line}[/{THEME['tool_result']}]")
+    if summary:
+        console.print(f"    [{THEME['text_dim']}]{summary}[/{THEME['text_dim']}]")
 
 
 def render_tool_error(tool_name: str, error: str) -> None:
