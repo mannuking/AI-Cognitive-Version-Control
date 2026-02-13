@@ -52,7 +52,7 @@ TAGLINE = "[#8B7070]Cognitive Version Control — Git for the AI Mind[/#8B7070]"
 try:
     from cvc import __version__ as VERSION
 except ImportError:
-    VERSION = "1.1.3"
+    VERSION = "1.1.4"
 
 
 def _banner(subtitle: str = "") -> None:

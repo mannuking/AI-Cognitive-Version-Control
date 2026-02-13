@@ -193,7 +193,7 @@ async def lifespan(app: FastAPI):
 try:
     from cvc import __version__ as _cvc_version
 except ImportError:
-    _cvc_version = "1.1.3"
+    _cvc_version = "1.1.4"
 
 app = FastAPI(
     title="CVC — Cognitive Version Control Proxy",
