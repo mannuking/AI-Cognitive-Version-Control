@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 
+from cvc.adapters.base import BaseAdapter
 from cvc.core.models import (
     ChatCompletionChoice,
     ChatCompletionRequest,
@@ -34,14 +35,23 @@ ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 
 
-class AnthropicAdapter:
+# ---- Available Models (verified Feb 2026) --------------------------------
+# claude-opus-4-6     — Most intelligent, for agents & coding
+# claude-sonnet-4-5   — Best speed/intelligence combo
+# claude-haiku-4-5    — Fastest
+# --------------------------------------------------------------------------
+
+DEFAULT_MODEL = "claude-opus-4-6"
+
+
+class AnthropicAdapter(BaseAdapter):
     """
     Translates OpenAI-compatible ``ChatCompletionRequest`` objects into
     Anthropic Messages API calls, injecting prompt-cache control headers
     at the immutable-prefix boundary.
     """
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
+    def __init__(self, api_key: str, model: str = DEFAULT_MODEL) -> None:
         self._api_key = api_key
         self._model = model
         self._client = httpx.AsyncClient(

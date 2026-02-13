@@ -140,9 +140,10 @@ The agent talks to CVC like any normal API. Behind the scenes, CVC manages every
 │  │  Agent   │  HTTP  │   CVC Proxy       │   HTTPS          │
 │  │ (Cursor, │ ─────▶ │   localhost:8000  │ ────────▶  ☁    │
 │  │ VS Code, │ ◀───── │                   │ ◀────────       │
-│  │  Custom) │        │  ┌────────────┐   │   Claude /      │
-│  └──────────┘        │  │ LangGraph  │   │   GPT /         │
-│                      │  │ Router     │   │   Gemini        │
+│  │  Custom) │        │  ┌────────────┐   │  Claude /       │
+│  └──────────┘        │  │ LangGraph  │   │  GPT-5.2 /      │
+│                      │  │ Router     │   │  Gemini /       │
+│                      │  │            │   │  Ollama         │
 │                      │  └──────┬─────┘   │                  │
 │                      └─────────┼─────────┘                  │
 │                                │                            │
@@ -234,15 +235,45 @@ pip install -e ".[dev]"
 ### ▶️ Run
 
 ```bash
-# Initialize CVC in your project
+# Interactive guided setup (picks provider, shows models, initialises .cvc/)
+cvc setup
+
+# — OR — manual setup:
 cvc init
+```
 
-# Set your API key
-export ANTHROPIC_API_KEY="sk-ant-..."  # Bash/Linux/macOS
-$env:ANTHROPIC_API_KEY = "sk-ant-..."  # PowerShell
+### 🔑 Set Your API Key
 
-# Start the proxy
-cvc serve
+<table>
+<thead>
+<tr><th>Provider</th><th>Bash / Linux / macOS</th><th>PowerShell</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Anthropic</strong></td>
+<td><code>export ANTHROPIC_API_KEY="sk-ant-..."</code></td>
+<td><code>$env:ANTHROPIC_API_KEY = "sk-ant-..."</code></td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong></td>
+<td><code>export OPENAI_API_KEY="sk-..."</code></td>
+<td><code>$env:OPENAI_API_KEY = "sk-..."</code></td>
+</tr>
+<tr>
+<td><strong>Google</strong></td>
+<td><code>export GOOGLE_API_KEY="AIza..."</code></td>
+<td><code>$env:GOOGLE_API_KEY = "AIza..."</code></td>
+</tr>
+<tr>
+<td><strong>Ollama</strong></td>
+<td colspan="2">No key needed — just run <code>ollama serve</code> and <code>ollama pull qwen2.5-coder:7b</code></td>
+</tr>
+</tbody>
+</table>
+
+```bash
+# Start the proxy with your chosen provider
+CVC_PROVIDER=anthropic cvc serve    # or: openai, google, ollama
 
 # (Optional) Install Git hooks for automatic sync
 cvc install-hooks
@@ -305,6 +336,10 @@ CVC exposes an **OpenAI-compatible** `/v1/chat/completions` endpoint — any too
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>cvc setup</code></td>
+<td>Interactive first-time setup (choose provider &amp; model)</td>
+</tr>
 <tr>
 <td><code>cvc init</code></td>
 <td>Initialize <code>.cvc/</code> in your project</td>
@@ -448,10 +483,61 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 
 <div align="center">
 
-🔥 Works today with **Anthropic prompt caching**  
-🔜 OpenAI and Google adapters on the roadmap
+🔥 Works today with **Anthropic**, **OpenAI**, **Google Gemini**, and **Ollama**  
+💡 Prompt caching optimised per provider
 
 </div>
+
+<br>
+
+---
+
+## 🤖 Supported Providers
+
+<div align="center">
+
+### Pick your provider. CVC handles the rest.
+
+</div>
+
+<br>
+
+<table>
+<thead>
+<tr>
+<th width="15%">Provider</th>
+<th width="30%">Default Model</th>
+<th width="30%">Alternatives</th>
+<th width="25%">Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Anthropic</strong></td>
+<td><code>claude-opus-4-6</code></td>
+<td><code>claude-sonnet-4-5</code>, <code>claude-haiku-4-5</code></td>
+<td>Prompt caching with <code>cache_control</code></td>
+</tr>
+<tr>
+<td><strong>OpenAI</strong></td>
+<td><code>gpt-5.2</code></td>
+<td><code>gpt-5.2-codex</code>, <code>gpt-5-mini</code>, <code>gpt-4.1</code></td>
+<td>Automatic prefix caching</td>
+</tr>
+<tr>
+<td><strong>Google</strong></td>
+<td><code>gemini-3-pro</code></td>
+<td><code>gemini-3-flash</code>, <code>gemini-2.5-flash</code>, <code>gemini-2.5-pro</code></td>
+<td>OpenAI-compatible endpoint</td>
+</tr>
+<tr>
+<td><strong>Ollama</strong></td>
+<td><code>qwen2.5-coder:7b</code></td>
+<td><code>qwen3-coder:30b</code>, <code>devstral:24b</code>, <code>deepseek-r1:8b</code></td>
+<td>100% local, no API key needed</td>
+</tr>
+</tbody>
+</table>
 
 <br>
 
@@ -498,13 +584,23 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 </tr>
 <tr>
 <td><code>CVC_MODEL</code></td>
-<td><code>claude-sonnet-4</code></td>
-<td>Model name</td>
+<td><em>auto</em></td>
+<td>Model name (auto-detected per provider)</td>
 </tr>
 <tr>
 <td><code>ANTHROPIC_API_KEY</code></td>
-<td><em>required</em></td>
-<td>Your API key</td>
+<td>—</td>
+<td>Required for <code>anthropic</code> provider</td>
+</tr>
+<tr>
+<td><code>OPENAI_API_KEY</code></td>
+<td>—</td>
+<td>Required for <code>openai</code> provider</td>
+</tr>
+<tr>
+<td><code>GOOGLE_API_KEY</code></td>
+<td>—</td>
+<td>Required for <code>google</code> provider</td>
 </tr>
 <tr>
 <td><code>CVC_HOST</code></td>
@@ -578,16 +674,16 @@ See <em>how</em> an AI-generated PR was produced. Inspect for hallucination patt
 </thead>
 <tbody>
 <tr>
-<td><strong>🤖 OpenAI Adapter</strong></td>
-<td>Prefix caching for GPT-4o</td>
+<td><strong>✅ OpenAI Adapter</strong></td>
+<td>GPT-5.2 / GPT-5.2-Codex / GPT-5-mini</td>
 </tr>
 <tr>
-<td><strong>🔮 Google/Gemini Adapter</strong></td>
-<td><code>cachedContent.create</code> with TTL</td>
+<td><strong>✅ Google Gemini Adapter</strong></td>
+<td>Gemini 3 Pro / Flash / 2.5 Flash</td>
 </tr>
 <tr>
-<td><strong>💻 Local Inference</strong></td>
-<td>KV Cache serialisation for vLLM / Ollama</td>
+<td><strong>✅ Ollama (Local)</strong></td>
+<td>Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 / Devstral</td>
 </tr>
 <tr>
 <td><strong>🎨 VS Code Extension</strong></td>
@@ -643,7 +739,7 @@ Whether you're fixing a typo or building an entirely new provider adapter — co
 </thead>
 <tbody>
 <tr>
-<td>🔌 Provider Adapters (OpenAI, Gemini, Ollama)</td>
+<td>🔌 Additional Provider Adapters (Mistral, Cohere, etc.)</td>
 <td align="center">🟡 Medium</td>
 </tr>
 <tr>

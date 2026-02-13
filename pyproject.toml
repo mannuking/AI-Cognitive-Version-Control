@@ -37,6 +37,7 @@ vector = ["chromadb>=0.5.0", "sentence-transformers>=3.0.0"]
 anthropic = ["anthropic>=0.39.0"]
 openai = ["openai>=1.50.0"]
 google = ["google-genai>=1.0.0"]
+ollama = []  # No extra deps — Ollama uses httpx (already a core dep)
 all = ["cvc[vector,anthropic,openai,google]"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24.0", "ruff>=0.7.0"]
 

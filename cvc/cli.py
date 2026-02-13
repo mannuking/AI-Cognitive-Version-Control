@@ -73,7 +73,8 @@ def serve(host: str, port: int, do_reload: bool) -> None:
     import uvicorn
 
     console.print(f"[bold green]Starting CVC Proxy[/] on {host}:{port}")
-    console.print("[dim]Agent: Sofia | Provider: Anthropic | State-based architecture[/dim]")
+    config = _get_config()
+    console.print(f"[dim]Agent: {config.agent_id} | Provider: {config.provider} | Model: {config.model}[/dim]")
     uvicorn.run(
         "cvc.proxy:app",
         host=host,
@@ -287,6 +288,87 @@ def restore_for_checkout(git_sha: str) -> None:
         if result.success:
             console.print(f"[green]✓[/green] Restored CVC state: {cvc_hash[:12]}")
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# setup (guided first-time configuration)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option(
+    "--provider",
+    type=click.Choice(["anthropic", "openai", "google", "ollama"], case_sensitive=False),
+    prompt="LLM Provider",
+    help="Which LLM provider to use.",
+)
+@click.option("--model", default="", help="Model override (uses provider default if empty).")
+def setup(provider: str, model: str) -> None:
+    """Interactive first-time setup — configures provider and initialises .cvc/."""
+    from cvc.adapters import PROVIDER_DEFAULTS
+
+    defaults = PROVIDER_DEFAULTS[provider]
+    chosen_model = model or defaults["model"]
+
+    # Show model choices
+    model_table = {
+        "anthropic": [
+            ("claude-opus-4-6", "Most intelligent — agents & coding"),
+            ("claude-sonnet-4-5", "Best speed / intelligence balance"),
+            ("claude-haiku-4-5", "Fastest & cheapest"),
+        ],
+        "openai": [
+            ("gpt-5.2", "Best for coding & agentic tasks"),
+            ("gpt-5.2-codex", "Optimized for long-horizon agentic coding"),
+            ("gpt-5-mini", "Fast & cost-efficient"),
+        ],
+        "google": [
+            ("gemini-3-pro", "Most powerful multimodal & agentic model"),
+            ("gemini-3-flash", "Balanced speed & intelligence"),
+            ("gemini-2.5-flash", "Best price-performance"),
+        ],
+        "ollama": [
+            ("qwen2.5-coder:7b", "Best coding model — 11M+ pulls"),
+            ("qwen3-coder:30b", "Latest agentic coding model"),
+            ("devstral:24b", "Mistral's best open-source coding agent"),
+        ],
+    }
+
+    table = Table(title=f"Available {provider.title()} Models")
+    table.add_column("Model ID", style="cyan")
+    table.add_column("Description")
+    table.add_column("Default", width=7)
+    for mid, desc in model_table.get(provider, []):
+        is_default = "  ●" if mid == chosen_model else ""
+        table.add_row(mid, desc, f"[green]{is_default}[/green]")
+    console.print(table)
+
+    # Check API key
+    env_key = defaults["env_key"]
+    if env_key:
+        key_val = os.environ.get(env_key, "")
+        if key_val:
+            console.print(f"[green]✓[/green] {env_key} is set")
+        else:
+            console.print(f"[yellow]![/yellow] Set [bold]{env_key}[/bold] before running [cyan]cvc serve[/cyan]")
+
+    if provider == "ollama":
+        console.print(
+            "\n[dim]Make sure Ollama is running: [bold]ollama serve[/bold]\n"
+            f"Pull your model: [bold]ollama pull {chosen_model}[/bold][/dim]"
+        )
+
+    # Initialise .cvc
+    from cvc.core.models import CVCConfig
+    config = CVCConfig(provider=provider, model=chosen_model)
+    config.ensure_dirs()
+
+    from cvc.core.database import ContextDatabase
+    ContextDatabase(config)
+
+    console.print(f"\n[green]✓[/green] Initialised CVC in [bold].cvc/[/bold]")
+    console.print(f"  Provider:  [cyan]{provider}[/cyan]")
+    console.print(f"  Model:     [cyan]{chosen_model}[/cyan]")
+    console.print(f"\nStart the proxy:  [bold]CVC_PROVIDER={provider} cvc serve[/bold]")
 
 
 if __name__ == "__main__":

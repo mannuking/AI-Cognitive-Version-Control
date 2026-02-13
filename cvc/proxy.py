@@ -29,7 +29,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from cvc.adapters.anthropic import AnthropicAdapter
+from cvc.adapters import BaseAdapter, create_adapter
 from cvc.core.database import ContextDatabase
 from cvc.core.models import (
     ChatCompletionChoice,
@@ -58,13 +58,38 @@ logger = logging.getLogger("cvc.proxy")
 _config: CVCConfig | None = None
 _db: ContextDatabase | None = None
 _engine: CVCEngine | None = None
-_adapter: AnthropicAdapter | None = None
+_adapter: BaseAdapter | None = None
 _bridge: VCSBridge | None = None
 _graph: Any = None  # Compiled LangGraph
 
 
 def _load_config() -> CVCConfig:
     """Build configuration from environment variables with sensible defaults."""
+    provider = os.getenv("CVC_PROVIDER", "anthropic").lower()
+
+    # Resolve the API key from the provider-specific env var
+    api_key_env_map = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "ollama": "",  # No key needed
+    }
+    api_key_env = api_key_env_map.get(provider, "")
+    api_key = os.getenv(api_key_env, "") if api_key_env else ""
+
+    # Resolve default model per provider
+    from cvc.adapters import PROVIDER_DEFAULTS
+    default_model = PROVIDER_DEFAULTS.get(provider, {}).get("model", "claude-opus-4-6")
+
+    # Resolve upstream base URL per provider
+    upstream_url_map = {
+        "anthropic": "https://api.anthropic.com",
+        "openai": "https://api.openai.com",
+        "google": "https://generativelanguage.googleapis.com",
+        "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+    }
+    default_upstream = upstream_url_map.get(provider, "https://api.anthropic.com")
+
     return CVCConfig(
         cvc_root=Path(os.getenv("CVC_ROOT", ".cvc")),
         db_path=Path(os.getenv("CVC_DB_PATH", ".cvc/cvc.db")),
@@ -73,10 +98,10 @@ def _load_config() -> CVCConfig:
         default_branch=os.getenv("CVC_DEFAULT_BRANCH", "main"),
         anchor_interval=int(os.getenv("CVC_ANCHOR_INTERVAL", "10")),
         agent_id=os.getenv("CVC_AGENT_ID", "sofia"),
-        provider=os.getenv("CVC_PROVIDER", "anthropic"),
-        upstream_base_url=os.getenv("CVC_UPSTREAM_URL", "https://api.anthropic.com"),
-        model=os.getenv("CVC_MODEL", "claude-sonnet-4-20250514"),
-        api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        provider=provider,
+        upstream_base_url=os.getenv("CVC_UPSTREAM_URL", default_upstream),
+        model=os.getenv("CVC_MODEL", default_model),
+        api_key=api_key,
         proxy_host=os.getenv("CVC_HOST", "127.0.0.1"),
         proxy_port=int(os.getenv("CVC_PORT", "8000")),
         vector_enabled=os.getenv("CVC_VECTOR_ENABLED", "false").lower() == "true",
@@ -94,7 +119,12 @@ async def lifespan(app: FastAPI):
 
     _db = ContextDatabase(_config)
     _engine = CVCEngine(_config, _db)
-    _adapter = AnthropicAdapter(api_key=_config.api_key, model=_config.model)
+    _adapter = create_adapter(
+        provider=_config.provider,
+        api_key=_config.api_key,
+        model=_config.model,
+        base_url=_config.upstream_base_url,
+    )
     _bridge = VCSBridge(_config, _db)
 
     # Build and compile the LangGraph state machine

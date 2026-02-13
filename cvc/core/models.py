@@ -209,7 +209,7 @@ class ChatMessage(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     """Subset of the OpenAI chat-completion request used by the proxy."""
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-opus-4-6"
     messages: list[ChatMessage] = Field(default_factory=list)
     temperature: float = 0.7
     max_tokens: int = 4096
@@ -258,10 +258,10 @@ class CVCConfig(BaseModel):
     anchor_interval: int = 10               # Full snapshot every N commits
     agent_id: str = "sofia"
 
-    # Provider
+    # Provider — supports: anthropic, openai, google, ollama
     provider: str = "anthropic"
     upstream_base_url: str = "https://api.anthropic.com"
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-opus-4-6"
     api_key: str = ""
 
     # Proxy
