@@ -6,6 +6,8 @@ Handles the API specifics of tool calling for each provider:
   - OpenAI: Chat Completions with function calling
   - Google: Gemini generateContent with function declarations
   - Ollama: OpenAI-compatible chat with tools
+
+Supports both blocking and streaming responses.
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -42,6 +44,19 @@ class LLMResponse:
     @property
     def has_tool_calls(self) -> bool:
         return len(self.tool_calls) > 0
+
+
+@dataclass
+class StreamEvent:
+    """A single event from a streaming LLM response."""
+    type: str          # "text_delta", "tool_call_start", "tool_call_delta", "done", "usage"
+    text: str = ""
+    tool_call: ToolCall | None = None
+    tool_call_index: int = 0
+    args_delta: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cache_read_tokens: int = 0
 
 
 class AgentLLM:
@@ -108,6 +123,42 @@ class AgentLLM:
             return await self._chat_google(messages, tools, temperature, max_tokens)
         elif self.provider == "ollama":
             return await self._chat_ollama(messages, tools, temperature, max_tokens)
+        else:
+            raise ValueError(f"Unknown provider: {self.provider}")
+
+    async def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        temperature: float = 0.7,
+        max_tokens: int = 8192,
+    ) -> AsyncIterator[StreamEvent]:
+        """
+        Stream a chat response token-by-token. Yields StreamEvent objects.
+        Falls back to non-streaming for providers that don't support it well.
+        """
+        if self.provider == "anthropic":
+            async for event in self._stream_anthropic(messages, tools, temperature, max_tokens):
+                yield event
+        elif self.provider == "openai":
+            async for event in self._stream_openai(messages, tools, temperature, max_tokens):
+                yield event
+        elif self.provider == "google":
+            # Google streaming is complex with tool calling; fall back to blocking
+            response = await self._chat_google(messages, tools, temperature, max_tokens)
+            if response.text:
+                yield StreamEvent(type="text_delta", text=response.text)
+            for tc in response.tool_calls:
+                yield StreamEvent(type="tool_call_start", tool_call=tc)
+            yield StreamEvent(
+                type="done",
+                prompt_tokens=response.prompt_tokens,
+                completion_tokens=response.completion_tokens,
+                cache_read_tokens=response.cache_read_tokens,
+            )
+        elif self.provider == "ollama":
+            async for event in self._stream_ollama(messages, tools, temperature, max_tokens):
+                yield event
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
@@ -515,4 +566,259 @@ class AgentLLM:
             finish_reason="tool_calls" if tool_calls else "stop",
             prompt_tokens=data.get("prompt_eval_count", 0),
             completion_tokens=data.get("eval_count", 0),
+        )
+
+    # ── Streaming Implementations ────────────────────────────────────────
+
+    async def _stream_anthropic(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream from Anthropic Messages API using SSE."""
+        system_parts = []
+        conv_messages = []
+        for m in messages:
+            if m["role"] == "system":
+                system_parts.append(m["content"])
+            else:
+                conv_messages.append(self._to_anthropic_message(m))
+
+        conv_messages = self._fix_anthropic_alternation(conv_messages)
+
+        body: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": conv_messages,
+            "stream": True,
+        }
+
+        if system_parts:
+            body["system"] = "\n\n".join(system_parts)
+
+        if tools:
+            anthropic_tools = []
+            for t in tools:
+                fn = t.get("function", t)
+                anthropic_tools.append({
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "input_schema": fn.get("parameters", fn.get("input_schema", {})),
+                })
+            body["tools"] = anthropic_tools
+
+        tool_calls: list[ToolCall] = []
+        tool_input_buffers: dict[int, str] = {}
+        prompt_tokens = 0
+        completion_tokens = 0
+        cache_read = 0
+
+        async with self._client.stream("POST", "/v1/messages", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                event_type = event.get("type", "")
+
+                if event_type == "content_block_start":
+                    block = event.get("content_block", {})
+                    if block.get("type") == "tool_use":
+                        idx = event.get("index", len(tool_calls))
+                        tc = ToolCall(
+                            id=block.get("id", f"call_{idx}"),
+                            name=block.get("name", ""),
+                            arguments={},
+                        )
+                        tool_calls.append(tc)
+                        tool_input_buffers[idx] = ""
+                        yield StreamEvent(type="tool_call_start", tool_call=tc, tool_call_index=idx)
+
+                elif event_type == "content_block_delta":
+                    delta = event.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        yield StreamEvent(type="text_delta", text=delta.get("text", ""))
+                    elif delta.get("type") == "input_json_delta":
+                        idx = event.get("index", 0)
+                        partial = delta.get("partial_json", "")
+                        if idx in tool_input_buffers:
+                            tool_input_buffers[idx] += partial
+
+                elif event_type == "content_block_stop":
+                    idx = event.get("index", 0)
+                    if idx in tool_input_buffers and idx < len(tool_calls):
+                        try:
+                            tool_calls[idx].arguments = json.loads(tool_input_buffers[idx])
+                        except json.JSONDecodeError:
+                            tool_calls[idx].arguments = {"raw": tool_input_buffers[idx]}
+
+                elif event_type == "message_delta":
+                    usage = event.get("usage", {})
+                    completion_tokens = usage.get("output_tokens", completion_tokens)
+
+                elif event_type == "message_start":
+                    msg_data = event.get("message", {})
+                    usage = msg_data.get("usage", {})
+                    prompt_tokens = usage.get("input_tokens", 0)
+                    cache_read = usage.get("cache_read_input_tokens", 0)
+
+        yield StreamEvent(
+            type="done",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cache_read_tokens=cache_read,
+        )
+
+    async def _stream_openai(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream from OpenAI Chat Completions API using SSE."""
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+
+        tool_calls: dict[int, ToolCall] = {}
+        tool_args_buffers: dict[int, str] = {}
+        prompt_tokens = 0
+        completion_tokens = 0
+
+        async with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = choice.get("delta", {})
+
+                # Text content
+                if delta.get("content"):
+                    yield StreamEvent(type="text_delta", text=delta["content"])
+
+                # Tool calls
+                for tc_delta in delta.get("tool_calls", []):
+                    idx = tc_delta.get("index", 0)
+                    if idx not in tool_calls:
+                        fn = tc_delta.get("function", {})
+                        tc = ToolCall(
+                            id=tc_delta.get("id", f"call_{idx}"),
+                            name=fn.get("name", ""),
+                            arguments={},
+                        )
+                        tool_calls[idx] = tc
+                        tool_args_buffers[idx] = ""
+                        yield StreamEvent(type="tool_call_start", tool_call=tc, tool_call_index=idx)
+
+                    fn_delta = tc_delta.get("function", {})
+                    if fn_delta.get("arguments"):
+                        tool_args_buffers[idx] = tool_args_buffers.get(idx, "") + fn_delta["arguments"]
+
+                # Usage info
+                usage = chunk.get("usage")
+                if usage:
+                    prompt_tokens = usage.get("prompt_tokens", 0)
+                    completion_tokens = usage.get("completion_tokens", 0)
+
+        # Finalize tool call arguments
+        for idx, tc in tool_calls.items():
+            raw = tool_args_buffers.get(idx, "{}")
+            try:
+                tc.arguments = json.loads(raw)
+            except json.JSONDecodeError:
+                tc.arguments = {"raw": raw}
+
+        yield StreamEvent(
+            type="done",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+
+    async def _stream_ollama(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream from Ollama API."""
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "options": {
+                "temperature": temperature,
+                "num_predict": max_tokens,
+            },
+        }
+
+        if tools:
+            body["tools"] = tools
+
+        prompt_tokens = 0
+        completion_tokens = 0
+
+        async with self._client.stream("POST", "/api/chat", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.strip():
+                    continue
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                msg = chunk.get("message", {})
+
+                # Text content
+                if msg.get("content"):
+                    yield StreamEvent(type="text_delta", text=msg["content"])
+
+                # Tool calls (Ollama sends them in the final message)
+                for i, tc_raw in enumerate(msg.get("tool_calls", [])):
+                    fn = tc_raw.get("function", {})
+                    tc = ToolCall(
+                        id=f"call_{i}",
+                        name=fn.get("name", ""),
+                        arguments=fn.get("arguments", {}),
+                    )
+                    yield StreamEvent(type="tool_call_start", tool_call=tc)
+
+                if chunk.get("done"):
+                    prompt_tokens = chunk.get("prompt_eval_count", 0)
+                    completion_tokens = chunk.get("eval_count", 0)
+
+        yield StreamEvent(
+            type="done",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )

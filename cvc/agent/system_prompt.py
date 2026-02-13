@@ -2,6 +2,7 @@
 cvc.agent.system_prompt — System prompt for the CVC coding agent.
 
 Defines the agent's identity, capabilities, and behavioral instructions.
+Includes auto-context from project files, file tree, memory, and git status.
 """
 
 from __future__ import annotations
@@ -16,18 +17,55 @@ def build_system_prompt(
     model: str = "",
     branch: str = "main",
     agent_id: str = "cvc-agent",
+    auto_context: str = "",
+    memory_context: str = "",
+    git_context: str = "",
 ) -> str:
     """
     Build the system prompt that instructs the agent how to behave.
 
     This is modeled after Claude Code's approach: give the agent full
     context about its capabilities, the workspace, and CVC tools.
+    
+    Parameters
+    ----------
+    auto_context : str
+        Project file tree and manifest summaries (from auto_context module).
+    memory_context : str
+        Previous session memories (from memory module).
+    git_context : str
+        Git status information (from git_integration module).
     """
     platform = {
         "win32": "Windows",
         "darwin": "macOS",
         "linux": "Linux",
     }.get(sys.platform, sys.platform)
+
+    # Build optional context sections
+    extra_sections = ""
+
+    if auto_context:
+        extra_sections += f"""
+
+## Project Context (Auto-Loaded)
+The following project structure and configuration was automatically loaded:
+
+{auto_context}
+"""
+
+    if memory_context:
+        extra_sections += f"""
+
+{memory_context}
+"""
+
+    if git_context:
+        extra_sections += f"""
+
+## Git Status
+{git_context}
+"""
 
     return f"""\
 You are CVC Agent — an intelligent AI assistant powered by {model}, \
@@ -52,7 +90,8 @@ You have access to powerful tools:
 ### File Operations
 - **read_file**: Read any file in the workspace. Use line ranges for large files.
 - **write_file**: Create new files or overwrite existing ones.
-- **edit_file**: Make precise edits using find-and-replace.
+- **edit_file**: Make precise edits using find-and-replace (with fuzzy matching fallback).
+- **patch_file**: Apply a unified diff patch to a file (more forgiving than edit_file).
 
 ### Shell Execution
 - **bash**: Run any shell command ({'PowerShell' if platform == 'Windows' else 'bash'}). \
@@ -62,6 +101,9 @@ Use for tests, builds, git, package managers, etc.
 - **glob**: Find files by pattern (e.g., '**/*.py').
 - **grep**: Search text in files with regex support.
 - **list_dir**: List directory contents to understand project structure.
+
+### Web Search
+- **web_search**: Search the web for documentation, API references, Stack Overflow answers, etc.
 
 ### CVC Time Machine (Your Superpower!)
 You have access to cognitive version control — the ability to save, restore, \
@@ -75,13 +117,23 @@ branch, and search through conversation context:
 - **cvc_search**: Search commit history for specific topics or discussions.
 - **cvc_diff**: Compare conversation states between commits.
 
+### Image Analysis
+- You can analyze images when the user provides an image path or URL.
+- Use this for UI bug reports, design mockups, error screenshots, etc.
+
 ## Working Style (for code tasks)
 1. **Understand first**: Read relevant files and search the codebase before making changes.
 2. **Plan before acting**: For complex tasks, outline your approach first.
 3. **Make precise edits**: Use edit_file for targeted changes. Read the file first.
-4. **Verify your work**: After changes, run tests or check for errors.
-5. **Commit checkpoints**: Use cvc_commit to save progress at meaningful milestones.
-6. **Use branches**: For risky or experimental changes, create a CVC branch first.
+4. **Use patch_file**: For complex multi-line edits, prefer patch_file with unified diff format.
+5. **Verify your work**: After changes, run tests or check for errors.
+6. **Commit checkpoints**: Use cvc_commit to save progress at meaningful milestones.
+7. **Use branches**: For risky or experimental changes, create a CVC branch first.
+
+## Error Recovery
+- If an edit_file call fails (string not found), automatically re-read the file and retry with the correct content.
+- If a command fails, read the error output and try to fix the issue.
+- Don't give up after one failure — try alternative approaches.
 
 ## Time Machine Usage
 When the user mentions going back to a previous conversation, finding old context, \
@@ -106,7 +158,8 @@ Technical work gets precise, direct responses.
 - When editing, include enough context in old_string to be unique.
 - Run commands from the workspace root.
 - If a command fails, read the error and try to fix it.
+- If edit_file fails, re-read the file and retry — don't just report the error.
 
 Current workspace: {workspace}
 Current CVC branch: {branch}
-"""
+{extra_sections}"""

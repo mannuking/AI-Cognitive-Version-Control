@@ -3,10 +3,19 @@ cvc.agent.executor — Tool execution engine for the CVC agent.
 
 Executes agent tool calls against the local filesystem, shell, and CVC engine.
 All file operations are scoped to the workspace root for safety.
+
+Features:
+  - Fuzzy matching for edit_file when exact match fails
+  - Unified diff patch_file for more forgiving edits
+  - File change tracking for /undo support
+  - Web search capability
+  - Respects .cvcignore patterns
 """
 
 from __future__ import annotations
 
+import asyncio
+import difflib
 import fnmatch
 import json
 import logging
@@ -14,6 +23,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -34,16 +44,31 @@ MAX_GLOB_RESULTS = 500
 MAX_DIR_ENTRIES = 300
 
 
+class FileChange:
+    """Tracks a single file change for undo support."""
+    __slots__ = ("path", "old_content", "new_content", "timestamp", "tool_name")
+
+    def __init__(self, path: Path, old_content: str | None, new_content: str, tool_name: str):
+        self.path = path
+        self.old_content = old_content  # None means file didn't exist
+        self.new_content = new_content
+        self.timestamp = time.time()
+        self.tool_name = tool_name
+
+
 class ToolExecutor:
     """
     Executes agent tool calls against the local filesystem and CVC engine.
 
     All file paths are resolved relative to the workspace root.
+    Tracks file changes for /undo support.
     """
 
     def __init__(self, workspace: Path, engine: CVCEngine) -> None:
         self.workspace = workspace.resolve()
         self.engine = engine
+        self._change_history: list[FileChange] = []
+        self._ignore_patterns: list[str] = self._load_cvcignore()
 
     def execute(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """
@@ -65,10 +90,12 @@ class ToolExecutor:
             "read_file": self._read_file,
             "write_file": self._write_file,
             "edit_file": self._edit_file,
+            "patch_file": self._patch_file,
             "bash": self._bash,
             "glob": self._glob,
             "grep": self._grep,
             "list_dir": self._list_dir,
+            "web_search": self._web_search,
             "cvc_status": self._cvc_status,
             "cvc_log": self._cvc_log,
             "cvc_commit": self._cvc_commit,
@@ -100,6 +127,77 @@ class ToolExecutor:
         p = p.resolve()
         # Safety: ensure path is within workspace (or allow absolute for reads)
         return p
+
+    def _load_cvcignore(self) -> list[str]:
+        """Load .cvcignore patterns."""
+        ignore_file = self.workspace / ".cvcignore"
+        if not ignore_file.exists():
+            return []
+        try:
+            patterns = []
+            for line in ignore_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    patterns.append(line)
+            return patterns
+        except OSError:
+            return []
+
+    def _is_ignored(self, path: Path) -> bool:
+        """Check if a path is ignored by .cvcignore."""
+        if not self._ignore_patterns:
+            return False
+        try:
+            rel = str(path.relative_to(self.workspace)).replace("\\", "/")
+        except ValueError:
+            return False
+        name = path.name
+        for pattern in self._ignore_patterns:
+            if fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(name, pattern):
+                return True
+            if pattern.endswith("/") and (rel + "/").startswith(pattern):
+                return True
+        return False
+
+    def _track_change(self, path: Path, old_content: str | None, new_content: str, tool: str) -> None:
+        """Track a file change for undo support."""
+        self._change_history.append(FileChange(path, old_content, new_content, tool))
+
+    def undo_last(self) -> str:
+        """
+        Undo the last file change.
+        Returns a status message.
+        """
+        if not self._change_history:
+            return "Nothing to undo — no file changes recorded."
+
+        change = self._change_history.pop()
+        rel = change.path.relative_to(self.workspace) if change.path.is_relative_to(self.workspace) else change.path
+
+        try:
+            if change.old_content is None:
+                # File was created — delete it
+                if change.path.exists():
+                    change.path.unlink()
+                    return f"Undone: deleted {rel} (was created by {change.tool_name})"
+                return f"File {rel} already deleted"
+            else:
+                # File was modified — restore old content
+                change.path.write_text(change.old_content, encoding="utf-8")
+                return f"Undone: restored {rel} (changed by {change.tool_name})"
+        except OSError as e:
+            return f"Undo failed: {e}"
+
+    def get_change_history(self) -> list[dict[str, str]]:
+        """Get a summary of tracked file changes."""
+        return [
+            {
+                "path": str(c.path.relative_to(self.workspace) if c.path.is_relative_to(self.workspace) else c.path),
+                "tool": c.tool_name,
+                "action": "created" if c.old_content is None else "modified",
+            }
+            for c in self._change_history
+        ]
 
     # ── File Operations ──────────────────────────────────────────────────
 
@@ -134,13 +232,23 @@ class ToolExecutor:
         path = self._resolve_path(args["path"])
         content = args["content"]
 
+        # Track for undo
+        old_content = None
         existed = path.exists()
+        if existed:
+            try:
+                old_content = path.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
         path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             path.write_text(content, encoding="utf-8")
         except OSError as e:
             return f"Error writing file: {e}"
+
+        self._track_change(path, old_content, content, "write_file")
 
         rel = path.relative_to(self.workspace) if path.is_relative_to(self.workspace) else path
         lines = content.count("\n") + 1
@@ -162,12 +270,31 @@ class ToolExecutor:
 
         count = content.count(old_string)
         if count == 0:
-            # Try to give a helpful hint
+            # Fuzzy matching fallback — try to find the closest match
+            match_result = self._fuzzy_find_and_replace(content, old_string, new_string)
+            if match_result is not None:
+                new_content, match_ratio = match_result
+                try:
+                    old_content = content
+                    path.write_text(new_content, encoding="utf-8")
+                    self._track_change(path, old_content, new_content, "edit_file")
+                except OSError as e:
+                    return f"Error writing file: {e}"
+                rel = path.relative_to(self.workspace) if path.is_relative_to(self.workspace) else path
+                old_lines = old_string.count("\n") + 1
+                new_lines = new_string.count("\n") + 1
+                return (
+                    f"Edited {rel} (fuzzy match {match_ratio:.0%}): "
+                    f"replaced {old_lines} line(s) with {new_lines} line(s)"
+                )
+
+            # No match found at all
             snippet = old_string[:80].replace("\n", "\\n")
             return (
                 f"Error: old_string not found in {path.name}. "
                 f"Searched for: '{snippet}...'\n"
-                f"Make sure the string matches exactly, including whitespace."
+                f"Make sure the string matches exactly, including whitespace.\n"
+                f"Tip: Use read_file to see the current content, then retry."
             )
         if count > 1:
             return (
@@ -175,17 +302,169 @@ class ToolExecutor:
                 f"Include more context to make it unique."
             )
 
+        old_content = content
         new_content = content.replace(old_string, new_string, 1)
         try:
             path.write_text(new_content, encoding="utf-8")
         except OSError as e:
             return f"Error writing file: {e}"
 
+        self._track_change(path, old_content, new_content, "edit_file")
+
         rel = path.relative_to(self.workspace) if path.is_relative_to(self.workspace) else path
-        # Show what changed
         old_lines = old_string.count("\n") + 1
         new_lines = new_string.count("\n") + 1
         return f"Edited {rel}: replaced {old_lines} line(s) with {new_lines} line(s)"
+
+    def _fuzzy_find_and_replace(
+        self, content: str, old_string: str, new_string: str, threshold: float = 0.6
+    ) -> tuple[str, float] | None:
+        """
+        Try fuzzy matching of old_string against file content.
+        Returns (new_content, match_ratio) or None if no good match found.
+        """
+        old_lines = old_string.splitlines(keepends=True)
+        content_lines = content.splitlines(keepends=True)
+
+        if not old_lines or not content_lines:
+            return None
+
+        best_ratio = 0.0
+        best_start = -1
+        best_end = -1
+        window_size = len(old_lines)
+
+        # Sliding window search
+        for i in range(len(content_lines) - window_size + 1):
+            candidate = content_lines[i:i + window_size]
+            ratio = difflib.SequenceMatcher(
+                None, "".join(old_lines), "".join(candidate)
+            ).ratio()
+
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_start = i
+                best_end = i + window_size
+
+        # Also try with ±1 line windows
+        for delta in [-1, 1]:
+            adjusted_size = window_size + delta
+            if adjusted_size < 1:
+                continue
+            for i in range(len(content_lines) - adjusted_size + 1):
+                candidate = content_lines[i:i + adjusted_size]
+                ratio = difflib.SequenceMatcher(
+                    None, "".join(old_lines), "".join(candidate)
+                ).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_start = i
+                    best_end = i + adjusted_size
+
+        if best_ratio >= threshold and best_start >= 0:
+            # Replace the matched section
+            new_lines = new_string.splitlines(keepends=True)
+            if new_string and not new_string.endswith("\n"):
+                pass  # Keep as-is
+            result_lines = content_lines[:best_start] + new_lines + content_lines[best_end:]
+            return "".join(result_lines), best_ratio
+
+        return None
+
+    def _patch_file(self, args: dict) -> str:
+        """
+        Apply a unified diff patch to a file.
+        More forgiving than edit_file for complex multi-hunk edits.
+        """
+        path = self._resolve_path(args["path"])
+        diff_text = args["diff"]
+
+        if not path.exists():
+            return f"Error: File not found: {path}"
+
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            return f"Error reading file: {e}"
+
+        old_content = content
+        lines = content.splitlines(keepends=True)
+
+        # Parse unified diff hunks
+        hunks = self._parse_unified_diff(diff_text)
+        if not hunks:
+            return "Error: Could not parse unified diff. Use @@ -line,count +line,count @@ format."
+
+        # Apply hunks in reverse order (so line numbers don't shift)
+        hunks.sort(key=lambda h: h["old_start"], reverse=True)
+        result_lines = list(lines)
+
+        for hunk in hunks:
+            old_start = hunk["old_start"] - 1  # Convert to 0-based
+            remove_lines = hunk["remove"]
+            add_lines = hunk["add"]
+
+            # Verify context matches (loosely)
+            end_idx = old_start + len(remove_lines)
+            if end_idx > len(result_lines):
+                end_idx = len(result_lines)
+
+            # Replace the section
+            result_lines[old_start:old_start + len(remove_lines)] = add_lines
+
+        new_content = "".join(result_lines)
+
+        try:
+            path.write_text(new_content, encoding="utf-8")
+        except OSError as e:
+            return f"Error writing file: {e}"
+
+        self._track_change(path, old_content, new_content, "patch_file")
+
+        rel = path.relative_to(self.workspace) if path.is_relative_to(self.workspace) else path
+        return f"Patched {rel}: applied {len(hunks)} hunk(s)"
+
+    @staticmethod
+    def _parse_unified_diff(diff_text: str) -> list[dict]:
+        """Parse a unified diff into a list of hunks."""
+        hunks = []
+        current_hunk = None
+
+        for line in diff_text.splitlines(keepends=True):
+            # Hunk header: @@ -old_start,old_count +new_start,new_count @@
+            header_match = re.match(
+                r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
+                line,
+            )
+            if header_match:
+                if current_hunk:
+                    hunks.append(current_hunk)
+                current_hunk = {
+                    "old_start": int(header_match.group(1)),
+                    "old_count": int(header_match.group(2) or 1),
+                    "new_start": int(header_match.group(3)),
+                    "new_count": int(header_match.group(4) or 1),
+                    "remove": [],
+                    "add": [],
+                }
+                continue
+
+            if current_hunk is None:
+                continue
+
+            if line.startswith("-"):
+                current_hunk["remove"].append(line[1:])
+            elif line.startswith("+"):
+                current_hunk["add"].append(line[1:])
+            elif line.startswith(" "):
+                # Context line — present in both old and new
+                current_hunk["remove"].append(line[1:])
+                current_hunk["add"].append(line[1:])
+
+        if current_hunk:
+            hunks.append(current_hunk)
+
+        return hunks
 
     # ── Shell Execution ──────────────────────────────────────────────────
 
@@ -243,6 +522,9 @@ class ToolExecutor:
                 if any(part.startswith(".") and part not in (".", "..") for part in parts):
                     continue
                 if any(skip in parts for skip in ("node_modules", "__pycache__", ".git", "venv", ".venv")):
+                    continue
+                # Check .cvcignore
+                if self._is_ignored(p):
                     continue
                 if "**" in pattern:
                     # rglob doesn't filter by the actual pattern, so do it manually
@@ -305,6 +587,9 @@ class ToolExecutor:
                     continue
                 if include and not fnmatch.fnmatch(fpath.name, include):
                     continue
+                # Check .cvcignore
+                if self._is_ignored(fpath):
+                    continue
                 # Skip binary files
                 if fpath.suffix in (".pyc", ".so", ".dll", ".exe", ".bin", ".dat", ".db", ".sqlite", ".whl", ".tar", ".gz", ".zip", ".jpg", ".png", ".gif", ".pdf"):
                     continue
@@ -349,6 +634,29 @@ class ToolExecutor:
         return f"Contents of {rel}/ ({len(entries)} entries):\n\n" + "\n".join(entries)
 
     # ── CVC Time Machine Operations ──────────────────────────────────────
+
+    def _web_search(self, args: dict) -> str:
+        """Execute a web search and return formatted results."""
+        query = args["query"]
+        max_results = args.get("max_results", 5)
+
+        try:
+            from cvc.agent.web_search import web_search, format_search_results
+            # Run the async search in the current event loop
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # We're inside an async context — use a thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    results = pool.submit(
+                        lambda: asyncio.run(web_search(query, max_results))
+                    ).result(timeout=20)
+            else:
+                results = asyncio.run(web_search(query, max_results))
+
+            return format_search_results(results, query)
+        except Exception as e:
+            return f"Web search failed: {e}"
 
     def _cvc_status(self, _args: dict) -> str:
         head = self.engine.head_hash or "(no commits)"

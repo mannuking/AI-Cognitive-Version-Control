@@ -2,9 +2,10 @@
 cvc.agent.tools — Agent tool definitions modeled after Claude Code CLI.
 
 Defines all tools the CVC agent can use:
-  - File operations: read_file, write_file, edit_file
+  - File operations: read_file, write_file, edit_file, patch_file
   - Shell: bash (cross-platform)
   - Search: glob, grep, list_dir
+  - Web: web_search
   - CVC Time Machine: cvc_status, cvc_log, cvc_commit, cvc_branch,
     cvc_restore, cvc_merge, cvc_search, cvc_diff
 """
@@ -104,6 +105,34 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     },
 
     # ── Shell Execution ───────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "patch_file",
+            "description": (
+                "Apply a unified diff patch to a file. More forgiving than edit_file — "
+                "handles whitespace differences and multi-hunk edits. Use standard "
+                "unified diff format with @@ -line,count +line,count @@ headers."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "File path to patch.",
+                    },
+                    "diff": {
+                        "type": "string",
+                        "description": (
+                            "Unified diff content. Lines starting with '-' are removed, "
+                            "'+' are added, ' ' (space) are context. Must include @@ headers."
+                        ),
+                    },
+                },
+                "required": ["path", "diff"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -207,6 +236,32 @@ AGENT_TOOLS: list[dict[str, Any]] = [
     },
 
     # ── CVC Time Machine Operations ──────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the web for documentation, API references, Stack Overflow answers, "
+                "tutorials, or any external information. Returns titles, URLs, and snippets "
+                "from search results. Use this when you need to look up library docs, "
+                "find solutions to errors, or research APIs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query — be specific for better results.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of results (default: 5).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
