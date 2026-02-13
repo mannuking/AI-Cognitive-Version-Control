@@ -40,14 +40,14 @@ console = Console()
 # Branding
 # ---------------------------------------------------------------------------
 
-LOGO = """[bold cyan]
+LOGO = """[bold #CC3333]
    ██████ ██    ██  ██████
   ██      ██    ██ ██
   ██      ██    ██ ██
   ██       ██  ██  ██
-   ██████   ████    ██████[/bold cyan]"""
+   ██████   ████    ██████[/bold #CC3333]"""
 
-TAGLINE = "[dim]Cognitive Version Control — Git for the AI Mind[/dim]"
+TAGLINE = "[#8B7070]Cognitive Version Control — Git for the AI Mind[/#8B7070]"
 
 try:
     from cvc import __version__ as VERSION
@@ -59,15 +59,15 @@ def _banner(subtitle: str = "") -> None:
     """Print the CVC banner."""
     content = f"{LOGO}\n\n{TAGLINE}"
     if subtitle:
-        content += f"\n[bold white]{subtitle}[/bold white]"
+        content += f"\n[bold #E8D0D0]{subtitle}[/bold #E8D0D0]"
     console.print(
         Panel(
             content,
-            border_style="cyan",
+            border_style="#8B0000",
             padding=(1, 4),
-            title=f"[bold white]v{VERSION}[/bold white]",
+            title=f"[bold #FF4444]v{VERSION}[/bold #FF4444]",
             title_align="right",
-            subtitle="[dim]Time Machine for AI Agents[/dim]",
+            subtitle="[#8B7070]Time Machine for AI Agents[/#8B7070]",
             subtitle_align="center",
         )
     )
@@ -75,7 +75,7 @@ def _banner(subtitle: str = "") -> None:
 
 
 def _success(msg: str) -> None:
-    console.print(f"  [bold green]✓[/bold green] {msg}")
+    console.print(f"  [bold #55AA55]✓[/bold #55AA55] {msg}")
 
 
 def _error(msg: str) -> None:
@@ -83,7 +83,7 @@ def _error(msg: str) -> None:
 
 
 def _warn(msg: str) -> None:
-    console.print(f"  [bold yellow]![/bold yellow] {msg}")
+    console.print(f"  [bold #CCAA44]![/bold #CCAA44] {msg}")
 
 
 def _info(msg: str) -> None:
@@ -95,8 +95,8 @@ def _hint(msg: str) -> None:
     console.print(
         Panel(
             msg,
-            border_style="blue",
-            title="[bold blue]Hint[/bold blue]",
+            border_style="#5C1010",
+            title="[bold #8B7070]Hint[/bold #8B7070]",
             padding=(0, 2),
         )
     )
@@ -283,7 +283,7 @@ def _run_ide_detection(model: str, endpoint: str = "http://127.0.0.1:8000") -> d
     Called at the end of ``setup`` to wire up detected IDEs automatically.
     Returns the detection results dict.
     """
-    console.print("[bold cyan]  Detecting installed IDEs…[/bold cyan]")
+    console.print("[bold #CC3333]  Detecting installed IDEs…[/bold #CC3333]")
     console.print()
 
     detected = _detect_ides()
@@ -313,8 +313,8 @@ def _run_ide_detection(model: str, endpoint: str = "http://127.0.0.1:8000") -> d
 
         elif ide_key == "cursor":
             _info("   → Open [bold]Cursor Settings → Models[/bold]")
-            _info(f"   → Override OpenAI Base URL → [bold cyan]{endpoint}/v1[/bold cyan]")
-            _info("   → API Key → [cyan]cvc[/cyan]")
+            _info(f"   → Override OpenAI Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]")
+            _info("   → API Key → [#CC3333]cvc[/#CC3333]")
             _info("   → Or add CVC as an MCP server: [bold]cvc connect cursor[/bold]")
             ide_info["configured"] = "manual"
 
@@ -344,13 +344,14 @@ class CvcGroup(click.Group):
             box=box.ROUNDED,
             border_style="dim",
             show_header=True,
-            header_style="bold cyan",
+            header_style="bold #CC3333",
             padding=(0, 2),
         )
         table.add_column("Command", style="bold white", width=22)
         table.add_column("Description", style="dim white")
 
         cmds = [
+            ("agent", "Interactive AI coding agent (like Claude Code)"),
             ("launch <tool>", "Auto-launch any AI tool through CVC"),
             ("up", "One-command start (setup + init + serve)"),
             ("setup", "Interactive first-time setup"),
@@ -374,7 +375,7 @@ class CvcGroup(click.Group):
         console.print(
             Panel(
                 table,
-                border_style="cyan",
+                border_style="#8B0000",
                 title="[bold white]Commands[/bold white]",
                 padding=(1, 1),
             )
@@ -384,17 +385,18 @@ class CvcGroup(click.Group):
         console.print()
         console.print(
             Panel(
-                "[bold white]Get started in 10 seconds:[/bold white]\n\n"
-                "  [cyan]$[/cyan] cvc launch claude      [dim]# Zero-config: launches Claude Code through CVC[/dim]\n"
-                "  [cyan]$[/cyan] cvc launch aider       [dim]# Zero-config: launches Aider through CVC[/dim]\n"
-                "  [cyan]$[/cyan] cvc up                 [dim]# One command: setup + init + serve[/dim]\n\n"
-                "[bold white]Or step by step:[/bold white]\n\n"
-                "  [cyan]$[/cyan] cvc setup              [dim]# Pick your provider & model[/dim]\n"
-                "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy (API key tools)[/dim]\n"
-                "  [cyan]$[/cyan] cvc mcp                [dim]# Start MCP server (auth-based IDEs)[/dim]\n"
-                "  [cyan]$[/cyan] cvc connect            [dim]# Wire up Cursor, Cline, Claude Code…[/dim]",
-                border_style="green",
-                title="[bold green]Quick Start[/bold green]",
+                "[bold #E8D0D0]Get started in 10 seconds:[/bold #E8D0D0]\n\n"
+                "  [#CC3333]$[/#CC3333] cvc agent              [#8B7070]# Interactive AI agent right here in your terminal[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc launch claude      [#8B7070]# Zero-config: launches Claude Code through CVC[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc launch aider       [#8B7070]# Zero-config: launches Aider through CVC[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc up                 [#8B7070]# One command: setup + init + serve[/#8B7070]\n\n"
+                "[bold #E8D0D0]Or step by step:[/bold #E8D0D0]\n\n"
+                "  [#CC3333]$[/#CC3333] cvc setup              [#8B7070]# Pick your provider & model[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc serve              [#8B7070]# Start the proxy (API key tools)[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc mcp                [#8B7070]# Start MCP server (auth-based IDEs)[/#8B7070]\n"
+                "  [#CC3333]$[/#CC3333] cvc connect            [#8B7070]# Wire up Cursor, Cline, Claude Code…[/#8B7070]",
+                border_style="#5C1010",
+                title="[bold #55AA55]Quick Start[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -420,78 +422,24 @@ def main(ctx: click.Context, verbose: bool) -> None:
     gc_path = get_global_config_dir() / "config.json"
 
     if not gc_path.exists():
-        # ─── First run — welcome + auto-launch setup ─────────────────────
+        # ─── First run — setup then straight into the agent ──────────────
         _banner()
         console.print(
             Panel(
                 "[bold white]Welcome to CVC![/bold white]\n\n"
-                "Looks like this is your [bold cyan]first time[/bold cyan] here.\n"
+                "Looks like this is your [bold #CC3333]first time[/bold #CC3333] here.\n"
                 "Let's get you set up — it takes about 30 seconds.",
-                border_style="yellow",
-                title="[bold yellow]First Run[/bold yellow]",
+                border_style="#7B3030",
+                title="[bold #CCAA44]First Run[/bold #CCAA44]",
                 padding=(1, 3),
             )
         )
         console.print()
         ctx.invoke(setup)
-        return
+        # After setup, fall through to launch the agent
 
-    # ─── Returning user — interactive main menu ──────────────────────────
-    gc = GlobalConfig.load()
-    _banner()
-
-    console.print(
-        Panel(
-            f"  Provider   [bold cyan]{gc.provider}[/bold cyan]\n"
-            f"  Model      [bold cyan]{gc.model}[/bold cyan]",
-            border_style="dim green",
-            title="[bold white]Current Config[/bold white]",
-            padding=(0, 2),
-        )
-    )
-    console.print()
-    console.print("  [bold white]What would you like to do?[/bold white]\n")
-
-    menu = [
-        ("1", "Launch", "Auto-launch an AI tool through CVC", "bold green"),
-        ("2", "Up", "One-command start (setup + init + serve)", "green"),
-        ("3", "Setup", "Configure provider, model & API key", "cyan"),
-        ("4", "Serve", "Start the CVC proxy server", "yellow"),
-        ("5", "Connect", "Wire up your AI tool to CVC", "yellow"),
-        ("6", "MCP", "Start MCP server (auth-based IDEs)", "magenta"),
-        ("7", "Sessions", "View Time Machine session history", "blue"),
-        ("8", "Status", "View current project status", "blue"),
-        ("9", "Doctor", "Health check your environment", "dim"),
-        ("0", "Help", "Show all available commands", "dim"),
-    ]
-    for num, label, desc, color in menu:
-        console.print(f"    [{color}]{num}[/{color}]  [bold]{label}[/bold]  [dim]— {desc}[/dim]")
-
-    console.print()
-
-    choice = click.prompt("  Pick an option", type=click.IntRange(0, 9), default=1)
-    console.print()
-
-    if choice == 1:
-        ctx.invoke(launch)
-    elif choice == 2:
-        ctx.invoke(up)
-    elif choice == 3:
-        ctx.invoke(setup)
-    elif choice == 4:
-        ctx.invoke(serve)
-    elif choice == 5:
-        ctx.invoke(connect)
-    elif choice == 6:
-        ctx.invoke(mcp)
-    elif choice == 7:
-        ctx.invoke(sessions)
-    elif choice == 8:
-        ctx.invoke(status)
-    elif choice == 9:
-        ctx.invoke(doctor)
-    elif choice == 0:
-        ctx.command.format_help(ctx, click.HelpFormatter())
+    # ─── Launch the agent directly ───────────────────────────────────────
+    ctx.invoke(agent)
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +478,52 @@ MODEL_CATALOG = {
 @click.option(
     "--provider",
     type=click.Choice(["anthropic", "openai", "google", "ollama"], case_sensitive=False),
+    default=None,
+    help="LLM provider (uses config default if omitted).",
+)
+@click.option("--model", default="", help="Model override (uses provider default if empty).")
+@click.option("--api-key", default="", help="API key override.")
+def agent(provider: str | None, model: str, api_key: str) -> None:
+    """Interactive AI coding agent — Claude Code on steroids with Time Machine."""
+    from cvc.core.models import GlobalConfig
+
+    gc = GlobalConfig.load()
+
+    # Resolve provider
+    prov = provider or gc.provider
+    if not prov:
+        console.print(
+            "[bold red]No provider configured.[/bold red] Run [bold]cvc setup[/bold] first, "
+            "or pass [bold]--provider[/bold]."
+        )
+        raise SystemExit(1)
+
+    # Resolve model
+    mdl = model or gc.model or ""
+
+    # Resolve API key
+    key = api_key or gc.api_keys.get(prov, "") or ""
+    if prov != "ollama" and not key:
+        console.print(
+            f"[bold red]No API key for {prov}.[/bold red] Run [bold]cvc setup[/bold] first, "
+            "or pass [bold]--api-key[/bold]."
+        )
+        raise SystemExit(1)
+
+    from cvc.agent import run_agent
+
+    run_agent(provider=prov, model=mdl, api_key=key)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Setup
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@main.command()
+@click.option(
+    "--provider",
+    type=click.Choice(["anthropic", "openai", "google", "ollama"], case_sensitive=False),
     prompt=False,
     help="LLM provider (interactive prompt if omitted).",
 )
@@ -556,8 +550,8 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
                 masked_keys[prov] = "●●●●"
 
         current_info = (
-            f"  Provider   [bold cyan]{existing_gc.provider}[/bold cyan]\n"
-            f"  Model      [bold cyan]{existing_gc.model}[/bold cyan]"
+            f"  Provider   [bold #CC3333]{existing_gc.provider}[/bold #CC3333]\n"
+            f"  Model      [bold #CC3333]{existing_gc.model}[/bold #CC3333]"
         )
         if masked_keys:
             keys_str = ", ".join(f"{p}: {m}" for p, m in masked_keys.items())
@@ -566,8 +560,8 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         console.print(
             Panel(
                 current_info,
-                border_style="green",
-                title="[bold green]Existing Configuration Found[/bold green]",
+                border_style="#5C1010",
+                title="[bold #55AA55]Existing Configuration Found[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -575,10 +569,10 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
 
         console.print("  [bold white]What would you like to do?[/bold white]")
         console.print()
-        console.print("    [cyan]1[/cyan]  [bold]Start Fresh[/bold]          [dim]— Reconfigure everything from scratch[/dim]")
-        console.print("    [green]2[/green]  [bold]Change Provider[/bold]     [dim]— Switch to a different LLM provider[/dim]")
-        console.print("    [yellow]3[/yellow]  [bold]Change Model[/bold]        [dim]— Keep provider, pick a different model[/dim]")
-        console.print("    [magenta]4[/magenta]  [bold]Update API Key[/bold]      [dim]— Replace or add an API key[/dim]")
+        console.print("    [#CC3333]1[/#CC3333]  [bold]Start Fresh[/bold]          [dim]— Reconfigure everything from scratch[/dim]")
+        console.print("    [#55AA55]2[/#55AA55]  [bold]Change Provider[/bold]     [dim]— Switch to a different LLM provider[/dim]")
+        console.print("    [#CCAA44]3[/#CCAA44]  [bold]Change Model[/bold]        [dim]— Keep provider, pick a different model[/dim]")
+        console.print("    [#AA6666]4[/#AA6666]  [bold]Update API Key[/bold]      [dim]— Replace or add an API key[/dim]")
         console.print("    [red]5[/red]  [bold]Reset Everything[/bold]    [dim]— Delete all config and start over[/dim]")
         console.print()
 
@@ -609,20 +603,20 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
             defaults = PROVIDER_DEFAULTS[provider]
             chosen_model = existing_gc.model
 
-            console.print("[bold cyan]  Pick a new model[/bold cyan]")
+            console.print("[bold #CC3333]  Pick a new model[/bold #CC3333]")
             console.print()
 
             models = MODEL_CATALOG.get(provider, [])
-            table = Table(box=box.ROUNDED, border_style="dim", show_header=True, header_style="bold cyan")
+            table = Table(box=box.ROUNDED, border_style="dim", show_header=True, header_style="bold #CC3333")
             table.add_column("#", style="bold", width=3)
-            table.add_column("Model ID", style="cyan")
+            table.add_column("Model ID", style="#CC3333")
             table.add_column("Description")
             table.add_column("Tier", style="dim", justify="right")
             table.add_column("", width=3)
             for i, (mid, desc, tier) in enumerate(models, 1):
-                marker = "[bold green]●[/bold green]" if mid == chosen_model else " "
+                marker = "[bold #55AA55]●[/bold #55AA55]" if mid == chosen_model else " "
                 table.add_row(str(i), mid, desc, tier, marker)
-            console.print(Panel(table, border_style="cyan", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1)))
+            console.print(Panel(table, border_style="#8B0000", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1)))
 
             model_choice = click.prompt("  Enter number or model ID", default="", show_default=False).strip()
             if model_choice:
@@ -690,21 +684,21 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         Panel(
             "[bold white]This wizard will configure CVC in 4 quick steps.[/bold white]\n"
             "Your settings are saved globally — works across all projects.",
-            border_style="cyan",
+            border_style="#8B0000",
             padding=(0, 2),
         )
     )
     console.print()
 
     # ─── Step 1: Provider Selection ──────────────────────────────────────
-    console.print("[bold cyan]  STEP 1 of 4[/bold cyan]  [bold white]Choose your LLM provider[/bold white]")
+    console.print("[bold #CC3333]  STEP 1 of 4[/bold #CC3333]  [bold white]Choose your LLM provider[/bold white]")
     console.print()
 
     if not provider:
         providers = [
-            ("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "cyan"),
-            ("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "green"),
-            ("google", "Google", "Gemini 3 Pro, Gemini 3 Flash", "yellow"),
+            (("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "#CC3333")),
+            (("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "#CC6666")),
+            (("google", "Google", "Gemini 3 Pro, Gemini 3 Flash", "#AA8844")),
             ("ollama", "Ollama", "Local models — no API key needed!", "magenta"),
         ]
         for i, (key, name, desc, color) in enumerate(providers, 1):
@@ -727,7 +721,7 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     chosen_model = model or defaults["model"]
 
     # ─── Step 2: Model Selection ─────────────────────────────────────────
-    console.print("[bold cyan]  STEP 2 of 4[/bold cyan]  [bold white]Pick a model[/bold white]")
+    console.print("[bold #CC3333]  STEP 2 of 4[/bold #CC3333]  [bold white]Pick a model[/bold white]")
     console.print()
 
     models = MODEL_CATALOG.get(provider, [])
@@ -735,24 +729,24 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         box=box.ROUNDED,
         border_style="dim",
         show_header=True,
-        header_style="bold cyan",
+        header_style="bold #CC3333",
     )
     table.add_column("#", style="bold", width=3)
-    table.add_column("Model ID", style="cyan")
+    table.add_column("Model ID", style="#CC3333")
     table.add_column("Description")
     table.add_column("Tier", style="dim", justify="right")
     table.add_column("", width=3)
 
     for i, (mid, desc, tier) in enumerate(models, 1):
-        marker = "[bold green]●[/bold green]" if mid == chosen_model else " "
+        marker = "[bold #55AA55]●[/bold #55AA55]" if mid == chosen_model else " "
         table.add_row(str(i), mid, desc, tier, marker)
 
     console.print(
-        Panel(table, border_style="cyan", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1))
+        Panel(table, border_style="#8B0000", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1))
     )
 
     if not model and models:
-        console.print(f"  [dim]Default:[/dim] [bold cyan]{chosen_model}[/bold cyan]  [dim](press Enter to keep)[/dim]")
+        console.print(f"  [dim]Default:[/dim] [bold #CC3333]{chosen_model}[/bold #CC3333]  [dim](press Enter to keep)[/dim]")
         model_choice = click.prompt(
             "  Enter number or model ID",
             default="",
@@ -769,7 +763,7 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     console.print()
 
     # ─── Step 3: API Key ─────────────────────────────────────────────────
-    console.print("[bold cyan]  STEP 3 of 4[/bold cyan]  [bold white]API Key[/bold white]")
+    console.print("[bold #CC3333]  STEP 3 of 4[/bold #CC3333]  [bold white]API Key[/bold white]")
     console.print()
 
     env_key = defaults["env_key"]
@@ -780,10 +774,10 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         console.print(
             Panel(
                 f"Make sure Ollama is running:\n\n"
-                f"  [cyan]$[/cyan] ollama serve\n"
-                f"  [cyan]$[/cyan] ollama pull {chosen_model}",
-                border_style="magenta",
-                title="[bold magenta]Local Setup[/bold magenta]",
+                f"  [#CC3333]$[/#CC3333] ollama serve\n"
+                f"  [#CC3333]$[/#CC3333] ollama pull {chosen_model}",
+                border_style="#6B2020",
+                title="[bold #AA6666]Local Setup[/bold #AA6666]",
                 padding=(1, 2),
             )
         )
@@ -842,7 +836,7 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     console.print()
 
     # ─── Step 4: Save & Initialise ───────────────────────────────────────
-    console.print("[bold cyan]  STEP 4 of 4[/bold cyan]  [bold white]Saving configuration[/bold white]")
+    console.print("[bold #CC3333]  STEP 4 of 4[/bold #CC3333]  [bold white]Saving configuration[/bold white]")
     console.print()
 
     from cvc.core.models import GlobalConfig, CVCConfig, get_global_config_dir
@@ -872,24 +866,24 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     console.print()
 
     # ─── Summary ─────────────────────────────────────────────────────────
-    key_display = "[green]● saved[/green]"
+    key_display = "[#55AA55]● saved[/#55AA55]"
     if provider == "ollama":
         key_display = "[dim]not needed[/dim]"
     elif not api_key and os.environ.get(env_key, ""):
-        key_display = "[green]● from env[/green]"
+        key_display = "[#55AA55]● from env[/#55AA55]"
     elif not api_key:
         key_display = "[red]● missing[/red]"
 
     console.print(
         Panel(
-            f"  Provider   [bold cyan]{provider}[/bold cyan]\n"
-            f"  Model      [bold cyan]{chosen_model}[/bold cyan]\n"
+            f"  Provider   [bold #CC3333]{provider}[/bold #CC3333]\n"
+            f"  Model      [bold #CC3333]{chosen_model}[/bold #CC3333]\n"
             f"  API Key    {key_display}\n"
             f"  Config     [dim]{gc_path}[/dim]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
             f"  Objects    [dim]{config.objects_dir}[/dim]",
-            border_style="green",
-            title="[bold green]✓ CVC is Ready[/bold green]",
+            border_style="#5C1010",
+            title="[bold #55AA55]✓ CVC is Ready[/bold #55AA55]",
             padding=(1, 2),
         )
     )
@@ -910,11 +904,11 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         console.print()
         console.print(
             Panel(
-                "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy whenever you're ready[/dim]\n"
-                "  [cyan]$[/cyan] cvc connect             [dim]# Tool-specific setup guides[/dim]\n"
-                "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000/v1/chat/completions[/dim]",
-                border_style="blue",
-                title="[bold blue]When You're Ready[/bold blue]",
+                "  [#CC3333]$[/#CC3333] cvc serve              [dim]# Start the proxy whenever you're ready[/dim]\n"
+                "  [#CC3333]$[/#CC3333] cvc connect             [dim]# Tool-specific setup guides[/dim]\n"
+                "  [#CC3333]$[/#CC3333] [dim]Point your agent → http://127.0.0.1:8000/v1/chat/completions[/dim]",
+                border_style="#5C1010",
+                title="[bold #8B7070]When You're Ready[/bold #8B7070]",
                 padding=(1, 2),
             )
         )
@@ -936,23 +930,23 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "The native Copilot agent cannot be redirected to a custom endpoint.",
             "However, VS Code supports [bold]3 ways[/bold] to use CVC:",
             "",
-            "[bold cyan]Option 1: Copilot BYOK (Bring Your Own Key)[/bold cyan]",
+            "[bold #CC3333]Option 1: Copilot BYOK (Bring Your Own Key)[/bold #CC3333]",
             "  Available on Copilot Individual plans (Free, Pro, Pro+):",
             "  1. [bold]Ctrl+Shift+P[/bold] → [bold]Chat: Manage Language Models[/bold]",
             "  2. Select [bold]OpenAI Compatible[/bold] as provider",
-            "  3. Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "  4. API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
-            "  5. Select model → [cyan]{model}[/cyan]",
+            "  3. Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "  4. API Key → [#CC3333]cvc[/#CC3333]  [dim](any non-empty string)[/dim]",
+            "  5. Select model → [#CC3333]{model}[/#CC3333]",
             "",
-            "[bold cyan]Option 2: MCP Server (Works with native Copilot)[/bold cyan]",
+            "[bold #CC3333]Option 2: MCP Server (Works with native Copilot)[/bold #CC3333]",
             "  Add to VS Code settings.json or .vscode/mcp.json:",
-            '     [cyan]{{"mcp": {{"servers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}}}[/cyan]',
+            '     [#CC3333]{{"mcp": {{"servers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}}}[/#CC3333]',
             "  CVC tools will be available as MCP tools in Copilot agent mode.",
             "",
-            "[bold cyan]Option 3: Extensions (Continue.dev / Cline)[/bold cyan]",
+            "[bold #CC3333]Option 3: Extensions (Continue.dev / Cline)[/bold #CC3333]",
             "  Install from VS Code Marketplace and configure with:",
-            "  Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "  API Key → [cyan]cvc[/cyan]",
+            "  Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "  API Key → [#CC3333]cvc[/#CC3333]",
             "",
             "[dim]BYOK is not available on Copilot Business/Enterprise plans.[/dim]",
             "[dim]For Enterprise, use MCP or an extension instead.[/dim]",
@@ -966,22 +960,22 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "[bold]Antigravity uses Google account authentication[/bold] — you cannot",
             "override the LLM API endpoint directly. Use CVC via [bold]MCP[/bold] instead.",
             "",
-            "[bold cyan]Option 1: MCP Server (Recommended)[/bold cyan]",
+            "[bold #CC3333]Option 1: MCP Server (Recommended)[/bold #CC3333]",
             "  1. Click [bold]⋯[/bold] in Antigravity's agent panel → [bold]Manage MCP Servers[/bold]",
             "  2. Click [bold]View raw config[/bold]",
             "  3. Add the CVC MCP server:",
             "",
-            '     [cyan]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/cyan]',
+            '     [#CC3333]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/#CC3333]',
             "",
             "  4. The CVC tools (commit, branch, merge, restore, status, log)",
             "     will appear as available tools in Antigravity's agent.",
             "",
-            "[bold cyan]Option 2: Continue.dev Extension[/bold cyan]",
+            "[bold #CC3333]Option 2: Continue.dev Extension[/bold #CC3333]",
             "  Antigravity is Code OSS-based and supports Open VSX extensions.",
             "  Install [bold]Continue.dev[/bold] from Open VSX and configure:",
-            "     Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "     API Key  → [cyan]cvc[/cyan]",
-            "     Model    → [cyan]{model}[/cyan]",
+            "     Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "     API Key  → [#CC3333]cvc[/#CC3333]",
+            "     Model    → [#CC3333]{model}[/#CC3333]",
             "",
             "[dim]Antigravity's native Gemini agent uses Google auth internally.[/dim]",
             "[dim]MCP is the only way to add CVC to the native agent flow.[/dim]",
@@ -995,15 +989,15 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "[bold]Cursor supports API key + base URL override.[/bold]",
             "",
             "  1. Open Cursor → Settings (⚙️) → [bold]Models[/bold]",
-            "  2. Click [bold]Add OpenAI API Key[/bold] → paste [cyan]cvc[/cyan]",
+            "  2. Click [bold]Add OpenAI API Key[/bold] → paste [#CC3333]cvc[/#CC3333]",
             "  3. Enable [bold]Override OpenAI Base URL[/bold] → set to:",
-            "     [bold cyan]{endpoint}/v1[/bold cyan]",
+            "     [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
             "  4. Select your model and start coding!",
             "",
-            "[bold cyan]Alternative: MCP Server[/bold cyan]",
+            "[bold #CC3333]Alternative: MCP Server[/bold #CC3333]",
             "  You can also add CVC as an MCP server in Cursor:",
             "  Settings → MCP Servers → Add:",
-            '     [cyan]{{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}[/cyan]',
+            '     [#CC3333]{{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}[/#CC3333]',
             "",
             "[dim]Note: Cursor's built-in models use subscription auth internally.[/dim]",
             "[dim]The override route above replaces those with CVC-proxied calls.[/dim]",
@@ -1017,12 +1011,12 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "[bold]Windsurf uses account-based authentication[/bold] — you cannot",
             "override the LLM API endpoint directly. Use CVC via [bold]MCP[/bold].",
             "",
-            "[bold cyan]MCP Server (Recommended)[/bold cyan]",
+            "[bold #CC3333]MCP Server (Recommended)[/bold #CC3333]",
             "  1. Open Windsurf → click [bold]⋯[/bold] in Cascade panel",
             "  2. Go to [bold]MCP Settings[/bold] → [bold]Configure[/bold]",
             "  3. Add the CVC MCP server:",
             "",
-            '     [cyan]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/cyan]',
+            '     [#CC3333]{{"mcpServers": {{"cvc": {{"command": "cvc", "args": ["mcp"]}}}}}}[/#CC3333]',
             "",
             "  4. CVC tools (commit, branch, merge, restore, status, log)",
             "     will be available to Windsurf's Cascade agent.",
@@ -1041,12 +1035,12 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "Install [bold]Continue[/bold] extension from VS Code Marketplace",
             "Open [bold]~/.continue/config.yaml[/bold] and add:",
             "",
-            "  [cyan]models:[/cyan]",
-            "    [cyan]- name: CVC Proxy[/cyan]",
-            "      [cyan]provider: openai[/cyan]",
-            "      [cyan]model: {model}[/cyan]",
-            "      [cyan]apiBase: {endpoint}/v1[/cyan]",
-            "      [cyan]apiKey: cvc[/cyan]",
+            "  [#CC3333]models:[/#CC3333]",
+            "    [#CC3333]- name: CVC Proxy[/#CC3333]",
+            "      [#CC3333]provider: openai[/#CC3333]",
+            "      [#CC3333]model: {model}[/#CC3333]",
+            "      [#CC3333]apiBase: {endpoint}/v1[/#CC3333]",
+            "      [#CC3333]apiKey: cvc[/#CC3333]",
             "",
             "Restart VS Code → select [bold]CVC Proxy[/bold] in Continue",
         ],
@@ -1059,9 +1053,9 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "Install [bold]Cline[/bold] extension from VS Code Marketplace",
             "Click the ⚙️ icon in the Cline panel",
             "Set API Provider → [bold]OpenAI Compatible[/bold]",
-            "Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
-            "Set Model ID → [cyan]{model}[/cyan]",
+            "Set Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "Set API Key → [#CC3333]cvc[/#CC3333]  [dim](any non-empty string)[/dim]",
+            "Set Model ID → [#CC3333]{model}[/#CC3333]",
             "Click [bold]Verify[/bold] → done!",
         ],
     },
@@ -1072,9 +1066,9 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "steps": [
             "Open VS Code → [bold]Chat: Manage Language Models[/bold] (Ctrl+Shift+P)",
             "Select [bold]OpenAI Compatible[/bold] as provider",
-            "Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
-            "Select model → [cyan]{model}[/cyan]",
+            "Set Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "Set API Key → [#CC3333]cvc[/#CC3333]  [dim](any non-empty string)[/dim]",
+            "Select model → [#CC3333]{model}[/#CC3333]",
             "[dim]Note: BYOK is for Copilot Individual plans only (not Business/Enterprise)[/dim]",
         ],
     },
@@ -1088,22 +1082,22 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "CVC serves the Anthropic Messages API at [bold]/v1/messages[/bold],",
             "so Claude Code works without any format translation.",
             "",
-            "[bold cyan]Quick start:[/bold cyan]",
+            "[bold #CC3333]Quick start:[/bold #CC3333]",
             "",
-            "  [cyan]export ANTHROPIC_BASE_URL=\"{endpoint}\"[/cyan]",
-            "  [cyan]claude[/cyan]",
+            "  [#CC3333]export ANTHROPIC_BASE_URL=\"{endpoint}\"[/#CC3333]",
+            "  [#CC3333]claude[/#CC3333]",
             "",
             "Your existing ANTHROPIC_API_KEY is passed through to the",
             "upstream Anthropic API. CVC intercepts the conversation for",
             "cognitive versioning and forwards everything else.",
             "",
-            "[bold cyan]Or add to ~/.claude/settings.json:[/bold cyan]",
+            "[bold #CC3333]Or add to ~/.claude/settings.json:[/bold #CC3333]",
             "",
-            "  [cyan]{{[/cyan]",
-            "    [cyan]\"env\": {{[/cyan]",
-            "      [cyan]\"ANTHROPIC_BASE_URL\": \"{endpoint}\"[/cyan]",
-            "    [cyan]}}[/cyan]",
-            "  [cyan]}}[/cyan]",
+            "  [#CC3333]{{[/#CC3333]",
+            "    [#CC3333]\"env\": {{[/#CC3333]",
+            "      [#CC3333]\"ANTHROPIC_BASE_URL\": \"{endpoint}\"[/#CC3333]",
+            "    [#CC3333]}}[/#CC3333]",
+            "  [#CC3333]}}[/#CC3333]",
             "",
             "[dim]Auth pass-through: CVC forwards your API key to Anthropic.[/dim]",
             "[dim]No need to store your key in CVC — just set ANTHROPIC_API_KEY.[/dim]",
@@ -1112,10 +1106,10 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "[bold]Claude Code now works natively with CVC![/bold]",
             "CVC serves the Anthropic Messages API at [bold]/v1/messages[/bold].",
             "",
-            "[bold cyan]Quick start:[/bold cyan]",
+            "[bold #CC3333]Quick start:[/bold #CC3333]",
             "",
-            "  [cyan]$env:ANTHROPIC_BASE_URL = \"{endpoint}\"[/cyan]",
-            "  [cyan]claude[/cyan]",
+            "  [#CC3333]$env:ANTHROPIC_BASE_URL = \"{endpoint}\"[/#CC3333]",
+            "  [#CC3333]claude[/#CC3333]",
             "",
             "Your existing ANTHROPIC_API_KEY is passed through to the",
             "upstream Anthropic API. CVC intercepts the conversation for",
@@ -1133,17 +1127,17 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "Gemini CLI uses settings files for configuration.",
             "Edit [bold]~/.gemini/settings.json[/bold] and add:",
             "",
-            "  [cyan]{{[/cyan]",
-            "    [cyan]\"model\": {{[/cyan]",
-            "      [cyan]\"name\": \"{model}\"[/cyan]",
-            "    [cyan]}}[/cyan]",
-            "  [cyan]}}[/cyan]",
+            "  [#CC3333]{{[/#CC3333]",
+            "    [#CC3333]\"model\": {{[/#CC3333]",
+            "      [#CC3333]\"name\": \"{model}\"[/#CC3333]",
+            "    [#CC3333]}}[/#CC3333]",
+            "  [#CC3333]}}[/#CC3333]",
             "",
             "Then set the API endpoint via environment variable:",
             "",
-            "  [cyan]export GEMINI_API_BASE_URL=\"{endpoint}/v1\"[/cyan]",
-            "  [cyan]export GEMINI_API_KEY=\"your-key\"[/cyan]",
-            "  [cyan]gemini[/cyan]",
+            "  [#CC3333]export GEMINI_API_BASE_URL=\"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]export GEMINI_API_KEY=\"your-key\"[/#CC3333]",
+            "  [#CC3333]gemini[/#CC3333]",
             "",
             "[dim]Custom base URL support may require Gemini CLI v2+.[/dim]",
             "[dim]Check: https://github.com/google-gemini/gemini-cli[/dim]",
@@ -1152,17 +1146,17 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "Gemini CLI uses settings files for configuration.",
             "Edit [bold]%USERPROFILE%\\.gemini\\settings.json[/bold] and add:",
             "",
-            "  [cyan]{{[/cyan]",
-            "    [cyan]\"model\": {{[/cyan]",
-            "      [cyan]\"name\": \"{model}\"[/cyan]",
-            "    [cyan]}}[/cyan]",
-            "  [cyan]}}[/cyan]",
+            "  [#CC3333]{{[/#CC3333]",
+            "    [#CC3333]\"model\": {{[/#CC3333]",
+            "      [#CC3333]\"name\": \"{model}\"[/#CC3333]",
+            "    [#CC3333]}}[/#CC3333]",
+            "  [#CC3333]}}[/#CC3333]",
             "",
             "Then set the API endpoint via environment variable:",
             "",
-            "  [cyan]$env:GEMINI_API_BASE_URL = \"{endpoint}/v1\"[/cyan]",
-            "  [cyan]$env:GEMINI_API_KEY = \"your-key\"[/cyan]",
-            "  [cyan]gemini[/cyan]",
+            "  [#CC3333]$env:GEMINI_API_BASE_URL = \"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]$env:GEMINI_API_KEY = \"your-key\"[/#CC3333]",
+            "  [#CC3333]gemini[/#CC3333]",
             "",
             "[dim]Custom base URL support may require Gemini CLI v2+.[/dim]",
             "[dim]Check: https://github.com/google-gemini/gemini-cli[/dim]",
@@ -1178,18 +1172,18 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "",
             "  Edit [bold]~/.kiro/settings.json[/bold]:",
             "",
-            "  [cyan]{{[/cyan]",
-            "    [cyan]\"model_provider\": \"openai\",[/cyan]",
-            "    [cyan]\"model\": \"{model}\",[/cyan]",
-            "    [cyan]\"base_url\": \"{endpoint}/v1\",[/cyan]",
-            "    [cyan]\"api_key\": \"cvc\"[/cyan]",
-            "  [cyan]}}[/cyan]",
+            "  [#CC3333]{{[/#CC3333]",
+            "    [#CC3333]\"model_provider\": \"openai\",[/#CC3333]",
+            "    [#CC3333]\"model\": \"{model}\",[/#CC3333]",
+            "    [#CC3333]\"base_url\": \"{endpoint}/v1\",[/#CC3333]",
+            "    [#CC3333]\"api_key\": \"cvc\"[/#CC3333]",
+            "  [#CC3333]}}[/#CC3333]",
             "",
             "Or use the Kiro Gateway for OpenAI-compatible routing:",
             "",
-            "  [cyan]export OPENAI_API_BASE=\"{endpoint}/v1\"[/cyan]",
-            "  [cyan]export OPENAI_API_KEY=\"cvc\"[/cyan]",
-            "  [cyan]kiro[/cyan]",
+            "  [#CC3333]export OPENAI_API_BASE=\"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]export OPENAI_API_KEY=\"cvc\"[/#CC3333]",
+            "  [#CC3333]kiro[/#CC3333]",
             "",
             "[dim]See: https://kiro.dev/docs/cli/[/dim]",
         ],
@@ -1199,18 +1193,18 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "",
             "  Edit [bold]%USERPROFILE%\\.kiro\\settings.json[/bold]:",
             "",
-            "  [cyan]{{[/cyan]",
-            "    [cyan]\"model_provider\": \"openai\",[/cyan]",
-            "    [cyan]\"model\": \"{model}\",[/cyan]",
-            "    [cyan]\"base_url\": \"{endpoint}/v1\",[/cyan]",
-            "    [cyan]\"api_key\": \"cvc\"[/cyan]",
-            "  [cyan]}}[/cyan]",
+            "  [#CC3333]{{[/#CC3333]",
+            "    [#CC3333]\"model_provider\": \"openai\",[/#CC3333]",
+            "    [#CC3333]\"model\": \"{model}\",[/#CC3333]",
+            "    [#CC3333]\"base_url\": \"{endpoint}/v1\",[/#CC3333]",
+            "    [#CC3333]\"api_key\": \"cvc\"[/#CC3333]",
+            "  [#CC3333]}}[/#CC3333]",
             "",
             "Or use environment variables:",
             "",
-            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
-            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
-            "  [cyan]kiro[/cyan]",
+            "  [#CC3333]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]$env:OPENAI_API_KEY = \"cvc\"[/#CC3333]",
+            "  [#CC3333]kiro[/#CC3333]",
             "",
             "[dim]See: https://kiro.dev/docs/cli/[/dim]",
         ],
@@ -1222,22 +1216,22 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "steps_unix": [
             "Set the environment variables:",
             "",
-            "  [cyan]export OPENAI_API_BASE={endpoint}/v1[/cyan]",
-            "  [cyan]export OPENAI_API_KEY=cvc[/cyan]",
+            "  [#CC3333]export OPENAI_API_BASE={endpoint}/v1[/#CC3333]",
+            "  [#CC3333]export OPENAI_API_KEY=cvc[/#CC3333]",
             "",
             "Then start Aider:",
             "",
-            "  [cyan]aider --model openai/{model}[/cyan]",
+            "  [#CC3333]aider --model openai/{model}[/#CC3333]",
         ],
         "steps_win": [
             "Set the environment variables:",
             "",
-            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
-            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
+            "  [#CC3333]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]$env:OPENAI_API_KEY = \"cvc\"[/#CC3333]",
             "",
             "Then start Aider:",
             "",
-            "  [cyan]aider --model openai/{model}[/cyan]",
+            "  [#CC3333]aider --model openai/{model}[/#CC3333]",
         ],
     },
     # ── Web Interface ─────────────────────────────────────────────────────
@@ -1248,8 +1242,8 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "steps": [
             "Open WebUI → [bold]Settings → Connections[/bold]",
             "Click [bold]+ Add Connection[/bold]",
-            "URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "API Key → [#CC3333]cvc[/#CC3333]  [dim](any non-empty string)[/dim]",
             "Save → the CVC model will appear in the model dropdown",
         ],
     },
@@ -1267,11 +1261,11 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "  2. Open your Firebase Studio workspace",
             "  3. Install [bold]Continue.dev[/bold] or [bold]Cline[/bold] from Open VSX",
             "  4. Configure the extension with:",
-            "     Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
-            "     API Key  → [cyan]cvc[/cyan]",
-            "     Model    → [cyan]{model}[/cyan]",
+            "     Base URL → [bold #CC3333]{endpoint}/v1[/bold #CC3333]",
+            "     API Key  → [#CC3333]cvc[/#CC3333]",
+            "     Model    → [#CC3333]{model}[/#CC3333]",
             "",
-            "[bold cyan]Alternative: MCP Server[/bold cyan]",
+            "[bold #CC3333]Alternative: MCP Server[/bold #CC3333]",
             "  If your Firebase Studio workspace has terminal access:",
             '  Add CVC as an MCP server in [bold].vscode/mcp.json[/bold]',
             "",
@@ -1288,20 +1282,20 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
             "[bold]Codex CLI supports custom model providers.[/bold]",
             "Add CVC as a proxy provider in your config:",
             "",
-            "[bold cyan]Option 1: Environment variables[/bold cyan]",
+            "[bold #CC3333]Option 1: Environment variables[/bold #CC3333]",
             "",
-            "  [cyan]export OPENAI_API_BASE={endpoint}/v1[/cyan]",
-            "  [cyan]export OPENAI_API_KEY=cvc[/cyan]",
-            "  [cyan]codex[/cyan]",
+            "  [#CC3333]export OPENAI_API_BASE={endpoint}/v1[/#CC3333]",
+            "  [#CC3333]export OPENAI_API_KEY=cvc[/#CC3333]",
+            "  [#CC3333]codex[/#CC3333]",
             "",
-            "[bold cyan]Option 2: Config file (~/.codex/config.toml)[/bold cyan]",
+            "[bold #CC3333]Option 2: Config file (~/.codex/config.toml)[/bold #CC3333]",
             "",
-            "  [cyan]model_provider = \"cvc\"[/cyan]",
+            "  [#CC3333]model_provider = \"cvc\"[/#CC3333]",
             "",
-            "  [cyan][model_providers.cvc][/cyan]",
-            "  [cyan]name = \"CVC Proxy\"[/cyan]",
-            '  [cyan]base_url = "{endpoint}"[/cyan]',
-            '  [cyan]env_key = "OPENAI_API_KEY"[/cyan]',
+            "  [#CC3333][model_providers.cvc][/#CC3333]",
+            "  [#CC3333]name = \"CVC Proxy\"[/#CC3333]",
+            '  [#CC3333]base_url = "{endpoint}"[/#CC3333]',
+            '  [#CC3333]env_key = "OPENAI_API_KEY"[/#CC3333]',
             "",
             "Your API key is passed through to the upstream provider.",
             "",
@@ -1310,20 +1304,20 @@ TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
         "steps_win": [
             "[bold]Codex CLI supports custom model providers.[/bold]",
             "",
-            "[bold cyan]Option 1: Environment variables[/bold cyan]",
+            "[bold #CC3333]Option 1: Environment variables[/bold #CC3333]",
             "",
-            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
-            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
-            "  [cyan]codex[/cyan]",
+            "  [#CC3333]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/#CC3333]",
+            "  [#CC3333]$env:OPENAI_API_KEY = \"cvc\"[/#CC3333]",
+            "  [#CC3333]codex[/#CC3333]",
             "",
-            "[bold cyan]Option 2: Config file (~/.codex/config.toml)[/bold cyan]",
+            "[bold #CC3333]Option 2: Config file (~/.codex/config.toml)[/bold #CC3333]",
             "",
-            "  [cyan]model_provider = \"cvc\"[/cyan]",
+            "  [#CC3333]model_provider = \"cvc\"[/#CC3333]",
             "",
-            "  [cyan][model_providers.cvc][/cyan]",
-            "  [cyan]name = \"CVC Proxy\"[/cyan]",
-            '  [cyan]base_url = "{endpoint}"[/cyan]',
-            '  [cyan]env_key = "OPENAI_API_KEY"[/cyan]',
+            "  [#CC3333][model_providers.cvc][/#CC3333]",
+            "  [#CC3333]name = \"CVC Proxy\"[/#CC3333]",
+            '  [#CC3333]base_url = "{endpoint}"[/#CC3333]',
+            '  [#CC3333]env_key = "OPENAI_API_KEY"[/#CC3333]',
             "",
             "[dim]Works with: codex, codex --provider openai, and custom providers.[/dim]",
         ],
@@ -1380,9 +1374,9 @@ def serve(host: str, port: int, do_reload: bool) -> None:
 
     # Server info panel
     info_lines = [
-        f"  Endpoint   [bold cyan]{endpoint}[/bold cyan]",
-        f"  Chat API   [bold cyan]{endpoint}/v1/chat/completions[/bold cyan]",
-        f"  Models     [bold cyan]{endpoint}/v1/models[/bold cyan]",
+        f"  Endpoint   [bold #CC3333]{endpoint}[/bold #CC3333]",
+        f"  Chat API   [bold #CC3333]{endpoint}/v1/chat/completions[/bold #CC3333]",
+        f"  Models     [bold #CC3333]{endpoint}/v1/models[/bold #CC3333]",
         f"  Provider   [bold]{config.provider}[/bold]",
         f"  Model      [bold]{config.model}[/bold]",
         f"  Agent      [dim]{config.agent_id}[/dim]",
@@ -1398,9 +1392,9 @@ def serve(host: str, port: int, do_reload: bool) -> None:
         has_env = bool(os.environ.get(env_key))
         has_stored = bool(gc_serve.api_keys.get(config.provider))
         if has_env:
-            key_status = "[green]● env var[/green]"
+            key_status = "[#55AA55]● env var[/#55AA55]"
         elif has_stored:
-            key_status = "[green]● saved[/green]"
+            key_status = "[#55AA55]● saved[/#55AA55]"
         else:
             key_status = "[red]● missing[/red]"
         info_lines.append(f"  API Key    {key_status}  [dim]({env_key})[/dim]")
@@ -1410,8 +1404,8 @@ def serve(host: str, port: int, do_reload: bool) -> None:
     console.print(
         Panel(
             "\n".join(info_lines),
-            border_style="green",
-            title="[bold green]Starting[/bold green]",
+            border_style="#5C1010",
+            title="[bold #55AA55]Starting[/bold #55AA55]",
             padding=(1, 2),
         )
     )
@@ -1421,19 +1415,19 @@ def serve(host: str, port: int, do_reload: bool) -> None:
     console.print(
         Panel(
             "  [bold white]Connect your tools:[/bold white]\n\n"
-            f"  Base URL   [bold cyan]{endpoint}/v1[/bold cyan]\n"
-            f"  API Key    [cyan]cvc[/cyan]  [dim](any non-empty string works)[/dim]\n"
-            f"  Model      [cyan]{config.model}[/cyan]\n\n"
+            f"  Base URL   [bold #CC3333]{endpoint}/v1[/bold #CC3333]\n"
+            f"  API Key    [#CC3333]cvc[/#CC3333]  [dim](any non-empty string works)[/dim]\n"
+            f"  Model      [#CC3333]{config.model}[/#CC3333]\n\n"
             f"  [bold white]Claude Code CLI:[/bold white]\n"
-            f"  [cyan]export ANTHROPIC_BASE_URL={endpoint}[/cyan]\n\n"
+            f"  [#CC3333]export ANTHROPIC_BASE_URL={endpoint}[/#CC3333]\n\n"
             "  [bold white]Auth-based IDEs (Antigravity, Windsurf, native Copilot):[/bold white]\n"
             "  Run [bold]cvc mcp[/bold] to start the MCP server instead.\n\n"
             "  [dim]Works with: VS Code, Antigravity, Cursor, Windsurf, Cline,\n"
             "  Continue.dev, Claude Code, Codex CLI, Gemini CLI, Kiro CLI,\n"
             "  Aider, Open WebUI, Firebase Studio, and any OpenAI-compatible tool.[/dim]\n\n"
             "  [dim]Run[/dim] [bold]cvc connect[/bold] [dim]for tool-specific setup instructions.[/dim]",
-            border_style="blue",
-            title="[bold blue]Connect Your Tools[/bold blue]",
+            border_style="#5C1010",
+            title="[bold #8B7070]Connect Your Tools[/bold #8B7070]",
             padding=(1, 2),
         )
     )
@@ -1488,12 +1482,12 @@ def connect(tool: str | None, host: str, port: int) -> None:
     console.print(
         Panel(
             f"  [bold white]CVC Proxy Endpoint[/bold white]\n\n"
-            f"  Base URL   [bold cyan]{endpoint}/v1[/bold cyan]\n"
-            f"  API Key    [cyan]cvc[/cyan]  [dim](any non-empty string — CVC handles auth)[/dim]\n"
-            f"  Model      [cyan]{model}[/cyan]\n\n"
+            f"  Base URL   [bold #CC3333]{endpoint}/v1[/bold #CC3333]\n"
+            f"  API Key    [#CC3333]cvc[/#CC3333]  [dim](any non-empty string — CVC handles auth)[/dim]\n"
+            f"  Model      [#CC3333]{model}[/#CC3333]\n\n"
             f"  [dim]CVC exposes a fully OpenAI-compatible API.[/dim]\n"
             f"  [dim]Any tool that supports custom OpenAI endpoints will work.[/dim]",
-            border_style="cyan",
+            border_style="#8B0000",
             title="[bold white]Universal Connection Info[/bold white]",
             padding=(1, 2),
         )
@@ -1557,7 +1551,7 @@ def connect(tool: str | None, host: str, port: int) -> None:
 
     # Build numbered list grouped by category
     all_items: list[tuple[str, dict]] = []
-    colors = {"IDE": "cyan", "IDE Extension": "green", "CLI Tool": "yellow", "Web Interface": "magenta", "Cloud IDE": "red"}
+    colors = {"IDE": "#CC3333", "IDE Extension": "#CC6666", "CLI Tool": "#AA8844", "Web Interface": "#AA6666", "Cloud IDE": "red"}
 
     for cat, items in categories.items():
         if not items:
@@ -1617,8 +1611,8 @@ def init(path: str) -> None:
             f"  Directory  [bold]{config.cvc_root}[/bold]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
             f"  Objects    [dim]{config.objects_dir}[/dim]",
-            border_style="green",
-            title="[bold green]✓ Initialised[/bold green]",
+            border_style="#5C1010",
+            title="[bold #55AA55]✓ Initialised[/bold #55AA55]",
             padding=(1, 2),
         )
     )
@@ -1642,11 +1636,11 @@ def status() -> None:
     console.print(
         Panel(
             f"  Agent      [bold]{config.agent_id}[/bold]\n"
-            f"  Branch     [bold cyan]{engine.active_branch}[/bold cyan]\n"
-            f"  HEAD       [bold yellow]{head_short}[/bold yellow]\n"
+            f"  Branch     [bold #CC3333]{engine.active_branch}[/bold #CC3333]\n"
+            f"  HEAD       [bold #CCAA44]{head_short}[/bold #CCAA44]\n"
             f"  Context    [bold]{ctx_size}[/bold] messages\n"
             f"  Provider   [dim]{config.provider} / {config.model}[/dim]",
-            border_style="cyan",
+            border_style="#8B0000",
             title="[bold white]CVC Status[/bold white]",
             padding=(1, 2),
         )
@@ -1658,16 +1652,16 @@ def status() -> None:
             box=box.ROUNDED,
             border_style="dim",
             show_header=True,
-            header_style="bold cyan",
+            header_style="bold #CC3333",
         )
         table.add_column("", width=3)
         table.add_column("Branch", style="bold")
-        table.add_column("HEAD", style="yellow")
+        table.add_column("HEAD", style="#CCAA44")
         table.add_column("Status")
         for b in branches:
             is_active = b.name == engine.active_branch
-            marker = "[bold green]●[/bold green]" if is_active else "[dim]○[/dim]"
-            name_style = "bold cyan" if is_active else "white"
+            marker = "[bold #55AA55]●[/bold #55AA55]" if is_active else "[dim]○[/dim]"
+            name_style = "bold #CC3333" if is_active else "white"
             status_style = "green" if b.status.value == "active" else "dim"
             table.add_row(
                 marker,
@@ -1711,19 +1705,19 @@ def log(limit: int) -> None:
         box=box.ROUNDED,
         border_style="dim",
         show_header=True,
-        header_style="bold cyan",
+        header_style="bold #CC3333",
         title=f"[bold white]Commit Log[/bold white] [dim]— {engine.active_branch}[/dim]",
         title_style="",
     )
     table.add_column("", width=2)
-    table.add_column("Hash", style="yellow", width=12)
-    table.add_column("Type", style="cyan", width=12)
+    table.add_column("Hash", style="#CCAA44", width=12)
+    table.add_column("Type", style="#CC3333", width=12)
     table.add_column("Message", ratio=1)
     table.add_column("D", width=3, justify="center")
 
     for i, e in enumerate(entries):
         icon = TYPE_ICONS.get(e["type"], ">")
-        delta = "[dim]d[/dim]" if e["is_delta"] else "[green]●[/green]"
+        delta = "[dim]d[/dim]" if e["is_delta"] else "[#55AA55]●[/#55AA55]"
         msg = e["message"][:55]
         if len(e["message"]) > 55:
             msg += "…"
@@ -1761,11 +1755,11 @@ def commit(message: str, commit_type: str, tags: tuple[str, ...]) -> None:
         console.print(
             Panel(
                 f"  [bold]{message}[/bold]\n"
-                f"  Hash     [yellow]{short_hash}[/yellow]\n"
-                f"  Type     [cyan]{commit_type}[/cyan]\n"
+                f"  Hash     [#CCAA44]{short_hash}[/#CCAA44]\n"
+                f"  Type     [#CC3333]{commit_type}[/#CC3333]\n"
                 f"  Branch   [dim]{engine.active_branch}[/dim]",
-                border_style="green",
-                title="[bold green]✓ Committed[/bold green]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Committed[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -1792,11 +1786,11 @@ def branch(name: str, description: str) -> None:
     if result.success:
         console.print(
             Panel(
-                f"  [bold cyan]{name}[/bold cyan]\n"
+                f"  [bold #CC3333]{name}[/bold #CC3333]\n"
                 f"  From     [dim]{engine.active_branch}[/dim]\n"
-                f"  HEAD     [yellow]{(result.commit_hash or '')[:12]}[/yellow]",
-                border_style="green",
-                title="[bold green]✓ Branch Created[/bold green]",
+                f"  HEAD     [#CCAA44]{(result.commit_hash or '')[:12]}[/#CCAA44]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Branch Created[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -1825,10 +1819,10 @@ def merge(source_branch: str, target: str) -> None:
     if result.success:
         console.print(
             Panel(
-                f"  [bold]{source_branch}[/bold] → [bold cyan]{target}[/bold cyan]\n"
-                f"  Commit   [yellow]{(result.commit_hash or '')[:12]}[/yellow]",
-                border_style="green",
-                title="[bold green]✓ Merged[/bold green]",
+                f"  [bold]{source_branch}[/bold] → [bold #CC3333]{target}[/bold #CC3333]\n"
+                f"  Commit   [#CCAA44]{(result.commit_hash or '')[:12]}[/#CCAA44]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Merged[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -1855,10 +1849,10 @@ def restore(commit_hash: str) -> None:
     if result.success:
         console.print(
             Panel(
-                f"  Restored to [yellow]{commit_hash[:12]}[/yellow]\n"
+                f"  Restored to [#CCAA44]{commit_hash[:12]}[/#CCAA44]\n"
                 f"  Branch   [dim]{engine.active_branch}[/dim]",
-                border_style="green",
-                title="[bold green]✓ Time-Travelled[/bold green]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Time-Travelled[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -1892,8 +1886,8 @@ def install_hooks() -> None:
     console.print(
         Panel(
             "\n".join(lines),
-            border_style="green",
-            title="[bold green]✓ Hooks Installed[/bold green]",
+            border_style="#5C1010",
+            title="[bold #55AA55]✓ Hooks Installed[/bold #55AA55]",
             padding=(1, 2),
         )
     )
@@ -1917,9 +1911,9 @@ def capture_snapshot(git_sha: str | None) -> None:
         console.print(
             Panel(
                 f"  Git    [dim]{result['git_sha'][:12]}[/dim]\n"
-                f"  CVC    [yellow]{result['cvc_hash'][:12]}[/yellow]",
-                border_style="green",
-                title="[bold green]✓ Snapshot Captured[/bold green]",
+                f"  CVC    [#CCAA44]{result['cvc_hash'][:12]}[/#CCAA44]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Snapshot Captured[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -1941,7 +1935,7 @@ def restore_for_checkout(git_sha: str) -> None:
         from cvc.core.models import CVCRestoreRequest
         result = engine.restore(CVCRestoreRequest(commit_hash=cvc_hash))
         if result.success:
-            _success(f"Restored CVC state: [yellow]{cvc_hash[:12]}[/yellow]")
+            _success(f"Restored CVC state: [#CCAA44]{cvc_hash[:12]}[/#CCAA44]")
 
     db.close()
 
@@ -1989,11 +1983,11 @@ def mcp(transport: str, host: str, port: int) -> None:
         _banner("MCP Server (SSE)")
         console.print(
             Panel(
-                f"  Transport  [bold cyan]SSE[/bold cyan]\n"
-                f"  Endpoint   [bold cyan]http://{host}:{port}/sse[/bold cyan]\n"
-                f"  Messages   [bold cyan]http://{host}:{port}/messages[/bold cyan]",
-                border_style="green",
-                title="[bold green]MCP Server[/bold green]",
+                f"  Transport  [bold #CC3333]SSE[/bold #CC3333]\n"
+                f"  Endpoint   [bold #CC3333]http://{host}:{port}/sse[/bold #CC3333]\n"
+                f"  Messages   [bold #CC3333]http://{host}:{port}/messages[/bold #CC3333]",
+                border_style="#5C1010",
+                title="[bold #55AA55]MCP Server[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -2074,14 +2068,14 @@ def doctor() -> None:
         box=box.ROUNDED,
         border_style="dim",
         show_header=True,
-        header_style="bold cyan",
+        header_style="bold #CC3333",
     )
     table.add_column("", width=3)
     table.add_column("Check", style="bold")
     table.add_column("Status")
 
     for name, ok, detail in checks:
-        icon = "[green]✓[/green]" if ok else "[red]✗[/red]"
+        icon = "[#55AA55]✓[/#55AA55]" if ok else "[red]✗[/red]"
         table.add_row(icon, name, detail)
 
     console.print(table)
@@ -2142,11 +2136,11 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
         index_map: dict[int, str] = {}
 
         if cli_tools:
-            console.print("  [bold cyan]CLI Tools[/bold cyan]")
+            console.print("  [bold #CC3333]CLI Tools[/bold #CC3333]")
             for t in cli_tools:
-                status = "[green]●[/green]" if t["installed"] else "[red]○[/red]"
+                status = "[#55AA55]●[/#55AA55]" if t["installed"] else "[red]○[/red]"
                 console.print(
-                    f"    [cyan]{idx}[/cyan]  {status}  [bold]{t['name']}[/bold]  "
+                    f"    [#CC3333]{idx}[/#CC3333]  {status}  [bold]{t['name']}[/bold]  "
                     f"[dim]({t['binary']})[/dim]"
                 )
                 index_map[idx] = t["key"]
@@ -2154,11 +2148,11 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
             console.print()
 
         if ide_tools:
-            console.print("  [bold yellow]IDEs[/bold yellow]")
+            console.print("  [bold #CCAA44]IDEs[/bold #CCAA44]")
             for t in ide_tools:
-                status = "[green]●[/green]" if t["installed"] else "[red]○[/red]"
+                status = "[#55AA55]●[/#55AA55]" if t["installed"] else "[red]○[/red]"
                 console.print(
-                    f"    [yellow]{idx}[/yellow]  {status}  [bold]{t['name']}[/bold]  "
+                    f"    [#CCAA44]{idx}[/#CCAA44]  {status}  [bold]{t['name']}[/bold]  "
                     f"[dim]({t['binary']})[/dim]"
                 )
                 index_map[idx] = t["key"]
@@ -2179,7 +2173,7 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
         _info("Run [bold]cvc launch[/bold] (no arguments) to see available tools.")
         return
 
-    console.print(f"  [bold]Launching[/bold] [cyan]{resolved}[/cyan] through CVC…")
+    console.print(f"  [bold]Launching[/bold] [#CC3333]{resolved}[/#CC3333] through CVC…")
     console.print()
 
     time_machine = not no_time_machine
@@ -2209,7 +2203,7 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
     if "auto_init" in steps:
         _success("Auto-initialised .cvc/ in current directory")
     if "proxy_running" in steps:
-        _success(f"CVC proxy running at [bold cyan]{result['endpoint']}[/bold cyan]")
+        _success(f"CVC proxy running at [bold #CC3333]{result['endpoint']}[/bold #CC3333]")
 
     if time_machine:
         _success("Time Machine mode: [bold]ON[/bold] (auto-commit every 3 turns)")
@@ -2218,7 +2212,7 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
     env_overrides = result.get("env_overrides", {})
     if env_overrides:
         for k, v in env_overrides.items():
-            _info(f"[dim]{k}[/dim] = [cyan]{v}[/cyan]")
+            _info(f"[dim]{k}[/dim] = [#CC3333]{v}[/#CC3333]")
 
     # Show auto-config results
     auto_config = result.get("auto_config", {})
@@ -2236,8 +2230,8 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
                 f"  [bold white]{result['tool']}[/bold white] is launching…\n"
                 f"  [dim]All conversations flow through CVC automatically.[/dim]\n"
                 f"  [dim]Use /cvc commands or CVC tools for version control.[/dim]",
-                border_style="green",
-                title="[bold green]Time Machine Active[/bold green]",
+                border_style="#5C1010",
+                title="[bold #55AA55]Time Machine Active[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -2251,8 +2245,8 @@ def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_
                 f"  [bold white]{result['tool']}[/bold white] has been opened.\n"
                 f"  [dim]CVC proxy is running in the background.[/dim]\n"
                 f"  [dim]Conversations will be auto-saved by the Time Machine.[/dim]",
-                border_style="green",
-                title="[bold green]Time Machine Active[/bold green]",
+                border_style="#5C1010",
+                title="[bold #55AA55]Time Machine Active[/bold #55AA55]",
                 padding=(1, 2),
             )
         )
@@ -2285,7 +2279,7 @@ def up(host: str, port: int, time_machine: bool) -> None:
     # Step 1: Check setup
     gc_path = get_global_config_dir() / "config.json"
     if not gc_path.exists():
-        console.print("  [yellow]First-time setup required.[/yellow]")
+        console.print("  [#CCAA44]First-time setup required.[/#CCAA44]")
         console.print()
         click.get_current_context().invoke(setup)
         console.print()
@@ -2354,14 +2348,14 @@ def sessions(host: str, port: int) -> None:
         return
 
     # Config info
-    tm_status = "[bold green]ON[/bold green]" if data.get("time_machine") else "[dim]OFF[/dim]"
+    tm_status = "[bold #55AA55]ON[/bold #55AA55]" if data.get("time_machine") else "[dim]OFF[/dim]"
     interval = data.get("auto_commit_interval", "?")
     console.print(
         Panel(
             f"  Time Machine    {tm_status}\n"
             f"  Auto-commit     every [bold]{interval}[/bold] assistant turns\n"
             f"  Session timeout [dim]{data.get('session_timeout_seconds', '?')}s[/dim]",
-            border_style="cyan",
+            border_style="#8B0000",
             title="[bold white]Configuration[/bold white]",
             padding=(0, 2),
         )
@@ -2378,10 +2372,10 @@ def sessions(host: str, port: int) -> None:
         box=box.ROUNDED,
         border_style="dim",
         show_header=True,
-        header_style="bold cyan",
+        header_style="bold #CC3333",
     )
     table.add_column("#", width=4)
-    table.add_column("Tool", style="cyan", width=12)
+    table.add_column("Tool", style="#CC3333", width=12)
     table.add_column("Started", width=20)
     table.add_column("Messages", justify="right", width=10)
     table.add_column("Commits", justify="right", width=10)
@@ -2389,7 +2383,7 @@ def sessions(host: str, port: int) -> None:
 
     for s in session_list:
         started = datetime.fromtimestamp(s["started_at"]).strftime("%Y-%m-%d %H:%M") if s.get("started_at") else "?"
-        status_str = "[bold green]active[/bold green]" if s.get("active") else "[dim]ended[/dim]"
+        status_str = "[bold #55AA55]active[/bold #55AA55]" if s.get("active") else "[dim]ended[/dim]"
         table.add_row(
             str(s.get("id", "?")),
             s.get("tool", "?"),
