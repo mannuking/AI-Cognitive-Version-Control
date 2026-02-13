@@ -117,6 +117,7 @@ def agent_banner(version: str, provider: str, model: str, branch: str, workspace
             box=_NO_TOP_BOX,
             border_style=THEME["primary"],
             padding=(1, 4),
+            width=tw,
             subtitle=f"[{THEME['text_dim']}]Time Machine for AI Agents[/{THEME['text_dim']}]",
             subtitle_align="center",
         ),
