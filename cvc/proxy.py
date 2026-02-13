@@ -324,3 +324,32 @@ async def vcs_install_hooks() -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "cvc-proxy", "version": "0.1.0"}
+
+
+# ---------------------------------------------------------------------------
+# OpenAI-Compatible Model Discovery
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/models")
+async def list_models() -> dict[str, Any]:
+    """
+    OpenAI-compatible model listing endpoint.
+
+    Tools like Cursor, Cline, Continue.dev, and Open WebUI query this
+    endpoint to auto-discover available models.  We return the model
+    configured in the CVC proxy.
+    """
+    assert _config is not None
+    model_id = _config.model
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": model_id,
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": f"cvc-proxy ({_config.provider})",
+                "permission": [],
+            }
+        ],
+    }

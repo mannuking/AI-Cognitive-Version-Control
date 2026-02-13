@@ -146,6 +146,7 @@ class CvcGroup(click.Group):
         cmds = [
             ("setup", "Interactive first-time setup"),
             ("serve", "Start the Cognitive Proxy server"),
+            ("connect", "Connect your AI tool to CVC"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
             ("log", "View commit history"),
@@ -175,6 +176,7 @@ class CvcGroup(click.Group):
                 "[bold white]Get started in 30 seconds:[/bold white]\n\n"
                 "  [cyan]$[/cyan] cvc setup              [dim]# Pick your provider & model[/dim]\n"
                 "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy[/dim]\n"
+                "  [cyan]$[/cyan] cvc connect            [dim]# Wire up Cursor, Cline, Claude Code…[/dim]\n"
                 "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000[/dim]",
                 border_style="green",
                 title="[bold green]Quick Start[/bold green]",
@@ -489,6 +491,322 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Connection guides (shared between `serve` and `connect`)
+# ---------------------------------------------------------------------------
+
+TOOL_GUIDES: dict[str, dict[str, str | list[str]]] = {
+    # ── IDEs ──────────────────────────────────────────────────────────────
+    "vscode": {
+        "name": "Visual Studio Code",
+        "icon": "💎",
+        "category": "IDE",
+        "steps": [
+            "VS Code ships with [bold]GitHub Copilot[/bold] as its integrated AI agent.",
+            "Use [bold]BYOK[/bold] (Bring Your Own Key) to route Copilot through CVC:",
+            "",
+            "  1. Open [bold]Ctrl+Shift+P[/bold] → [bold]Chat: Manage Language Models[/bold]",
+            "  2. Select [bold]OpenAI Compatible[/bold] as provider",
+            "  3. Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "  4. Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "  5. Set Model → [cyan]{model}[/cyan]",
+            "",
+            "[dim]Or install Continue.dev / Cline extensions (see IDE Extensions)[/dim]",
+            "[dim]BYOK is available on Copilot Individual plans only[/dim]",
+        ],
+    },
+    "antigravity": {
+        "name": "Antigravity (Google)",
+        "icon": "🚀",
+        "category": "IDE",
+        "steps": [
+            "Antigravity is Google's agent-first IDE powered by Gemini 3.",
+            "It uses Gemini natively but supports extensions via Open VSX.",
+            "To route through CVC:",
+            "",
+            "  1. Start CVC with [bold]--host 0.0.0.0[/bold] (or use a tunnel)",
+            "  2. Open your Antigravity workspace",
+            "  3. Install [bold]Continue.dev[/bold] or [bold]Cline[/bold] from Open VSX",
+            "     (Antigravity is Code OSS-based)",
+            "  4. Configure the extension with:",
+            "     Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "     API Key  → [cyan]cvc[/cyan]",
+            "     Model    → [cyan]{model}[/cyan]",
+            "",
+            "You can also add a CVC [bold]MCP server[/bold] in the Agent Manager:",
+            "  Edit [bold]mcp_config.json[/bold] in your workspace settings",
+            "",
+            "[dim]Direct API override is not yet supported natively[/dim]",
+        ],
+    },
+    "cursor": {
+        "name": "Cursor",
+        "icon": "🖱️",
+        "category": "IDE",
+        "steps": [
+            "Open Cursor → Settings (⚙️) → Models",
+            "Scroll to [bold]OpenAI API Keys[/bold] → paste any dummy key (e.g. [cyan]cvc[/cyan])",
+            "Toggle [bold]\"Override OpenAI Base URL\"[/bold] → set to:",
+            "  [bold cyan]{endpoint}/v1[/bold cyan]",
+            "Select your model and start coding!",
+        ],
+    },
+    # ── IDE Extensions ────────────────────────────────────────────────────
+    "vscode-continue": {
+        "name": "Continue.dev (VS Code)",
+        "icon": "🔄",
+        "category": "IDE Extension",
+        "steps": [
+            "Install [bold]Continue[/bold] extension from VS Code Marketplace",
+            "Open [bold]~/.continue/config.yaml[/bold] and add:",
+            "",
+            "  [cyan]models:[/cyan]",
+            "    [cyan]- name: CVC Proxy[/cyan]",
+            "      [cyan]provider: openai[/cyan]",
+            "      [cyan]model: {model}[/cyan]",
+            "      [cyan]apiBase: {endpoint}/v1[/cyan]",
+            "      [cyan]apiKey: cvc[/cyan]",
+            "",
+            "Restart VS Code → select [bold]CVC Proxy[/bold] in Continue",
+        ],
+    },
+    "vscode-cline": {
+        "name": "Cline / Roo (VS Code)",
+        "icon": "🤖",
+        "category": "IDE Extension",
+        "steps": [
+            "Install [bold]Cline[/bold] extension from VS Code Marketplace",
+            "Click the ⚙️ icon in the Cline panel",
+            "Set API Provider → [bold]OpenAI Compatible[/bold]",
+            "Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "Set Model ID → [cyan]{model}[/cyan]",
+            "Click [bold]Verify[/bold] → done!",
+        ],
+    },
+    "vscode-copilot": {
+        "name": "GitHub Copilot (BYOK)",
+        "icon": "🐙",
+        "category": "IDE Extension",
+        "steps": [
+            "Open VS Code → [bold]Chat: Manage Language Models[/bold] (Ctrl+Shift+P)",
+            "Select [bold]OpenAI Compatible[/bold] as provider",
+            "Set Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "Set API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "Select model → [cyan]{model}[/cyan]",
+            "[dim]Note: BYOK is for Copilot Individual plans only (not Business/Enterprise)[/dim]",
+        ],
+    },
+    # ── CLI Tools ─────────────────────────────────────────────────────────
+    "claude-code": {
+        "name": "Claude Code CLI",
+        "icon": "🟠",
+        "category": "CLI Tool",
+        "steps_unix": [
+            "Set the environment variables before launching Claude Code:",
+            "",
+            "  [cyan]export ANTHROPIC_BASE_URL=\"{endpoint}\"[/cyan]",
+            "  [cyan]export ANTHROPIC_API_KEY=\"your-key\"[/cyan]",
+            "  [cyan]claude[/cyan]",
+            "",
+            "Or add to [bold]~/.claude/settings.json[/bold]:",
+            "",
+            "  [cyan]{{[/cyan]",
+            "    [cyan]\"env\": {{[/cyan]",
+            "      [cyan]\"ANTHROPIC_BASE_URL\": \"{endpoint}\"[/cyan]",
+            "    [cyan]}}[/cyan]",
+            "  [cyan]}}[/cyan]",
+        ],
+        "steps_win": [
+            "Set the environment variables before launching Claude Code:",
+            "",
+            "  [cyan]$env:ANTHROPIC_BASE_URL = \"{endpoint}\"[/cyan]",
+            "  [cyan]$env:ANTHROPIC_API_KEY = \"your-key\"[/cyan]",
+            "  [cyan]claude[/cyan]",
+        ],
+    },
+    "gemini-cli": {
+        "name": "Gemini CLI",
+        "icon": "💠",
+        "category": "CLI Tool",
+        "steps_unix": [
+            "Gemini CLI uses settings files for configuration.",
+            "Edit [bold]~/.gemini/settings.json[/bold] and add:",
+            "",
+            "  [cyan]{{[/cyan]",
+            "    [cyan]\"model\": {{[/cyan]",
+            "      [cyan]\"name\": \"{model}\"[/cyan]",
+            "    [cyan]}}[/cyan]",
+            "  [cyan]}}[/cyan]",
+            "",
+            "Then set the API endpoint via environment variable:",
+            "",
+            "  [cyan]export GEMINI_API_BASE_URL=\"{endpoint}/v1\"[/cyan]",
+            "  [cyan]export GEMINI_API_KEY=\"your-key\"[/cyan]",
+            "  [cyan]gemini[/cyan]",
+            "",
+            "[dim]Custom base URL support may require Gemini CLI v2+.[/dim]",
+            "[dim]Check: https://github.com/google-gemini/gemini-cli[/dim]",
+        ],
+        "steps_win": [
+            "Gemini CLI uses settings files for configuration.",
+            "Edit [bold]%USERPROFILE%\\.gemini\\settings.json[/bold] and add:",
+            "",
+            "  [cyan]{{[/cyan]",
+            "    [cyan]\"model\": {{[/cyan]",
+            "      [cyan]\"name\": \"{model}\"[/cyan]",
+            "    [cyan]}}[/cyan]",
+            "  [cyan]}}[/cyan]",
+            "",
+            "Then set the API endpoint via environment variable:",
+            "",
+            "  [cyan]$env:GEMINI_API_BASE_URL = \"{endpoint}/v1\"[/cyan]",
+            "  [cyan]$env:GEMINI_API_KEY = \"your-key\"[/cyan]",
+            "  [cyan]gemini[/cyan]",
+            "",
+            "[dim]Custom base URL support may require Gemini CLI v2+.[/dim]",
+            "[dim]Check: https://github.com/google-gemini/gemini-cli[/dim]",
+        ],
+    },
+    "kiro-cli": {
+        "name": "Kiro CLI (Amazon)",
+        "icon": "🦊",
+        "category": "CLI Tool",
+        "steps_unix": [
+            "Kiro CLI from Amazon uses custom agents + MCP servers.",
+            "Create a custom agent config to route through CVC:",
+            "",
+            "  Edit [bold]~/.kiro/settings.json[/bold]:",
+            "",
+            "  [cyan]{{[/cyan]",
+            "    [cyan]\"model_provider\": \"openai\",[/cyan]",
+            "    [cyan]\"model\": \"{model}\",[/cyan]",
+            "    [cyan]\"base_url\": \"{endpoint}/v1\",[/cyan]",
+            "    [cyan]\"api_key\": \"cvc\"[/cyan]",
+            "  [cyan]}}[/cyan]",
+            "",
+            "Or use the Kiro Gateway for OpenAI-compatible routing:",
+            "",
+            "  [cyan]export OPENAI_API_BASE=\"{endpoint}/v1\"[/cyan]",
+            "  [cyan]export OPENAI_API_KEY=\"cvc\"[/cyan]",
+            "  [cyan]kiro[/cyan]",
+            "",
+            "[dim]See: https://kiro.dev/docs/cli/[/dim]",
+        ],
+        "steps_win": [
+            "Kiro CLI from Amazon uses custom agents + MCP servers.",
+            "Create a custom agent config to route through CVC:",
+            "",
+            "  Edit [bold]%USERPROFILE%\\.kiro\\settings.json[/bold]:",
+            "",
+            "  [cyan]{{[/cyan]",
+            "    [cyan]\"model_provider\": \"openai\",[/cyan]",
+            "    [cyan]\"model\": \"{model}\",[/cyan]",
+            "    [cyan]\"base_url\": \"{endpoint}/v1\",[/cyan]",
+            "    [cyan]\"api_key\": \"cvc\"[/cyan]",
+            "  [cyan]}}[/cyan]",
+            "",
+            "Or use environment variables:",
+            "",
+            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
+            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
+            "  [cyan]kiro[/cyan]",
+            "",
+            "[dim]See: https://kiro.dev/docs/cli/[/dim]",
+        ],
+    },
+    "aider": {
+        "name": "Aider CLI",
+        "icon": "🛠️",
+        "category": "CLI Tool",
+        "steps_unix": [
+            "Set the environment variables:",
+            "",
+            "  [cyan]export OPENAI_API_BASE={endpoint}/v1[/cyan]",
+            "  [cyan]export OPENAI_API_KEY=cvc[/cyan]",
+            "",
+            "Then start Aider:",
+            "",
+            "  [cyan]aider --model openai/{model}[/cyan]",
+        ],
+        "steps_win": [
+            "Set the environment variables:",
+            "",
+            "  [cyan]$env:OPENAI_API_BASE = \"{endpoint}/v1\"[/cyan]",
+            "  [cyan]$env:OPENAI_API_KEY = \"cvc\"[/cyan]",
+            "",
+            "Then start Aider:",
+            "",
+            "  [cyan]aider --model openai/{model}[/cyan]",
+        ],
+    },
+    # ── Web Interface ─────────────────────────────────────────────────────
+    "open-webui": {
+        "name": "Open WebUI",
+        "icon": "🌐",
+        "category": "Web Interface",
+        "steps": [
+            "Open WebUI → [bold]Settings → Connections[/bold]",
+            "Click [bold]+ Add Connection[/bold]",
+            "URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "API Key → [cyan]cvc[/cyan]  [dim](any non-empty string)[/dim]",
+            "Save → the CVC model will appear in the model dropdown",
+        ],
+    },
+    # ── Cloud IDE ─────────────────────────────────────────────────────────
+    "firebase-studio": {
+        "name": "Firebase Studio",
+        "icon": "🔥",
+        "category": "Cloud IDE",
+        "steps": [
+            "Firebase Studio is Google's cloud IDE built on Code OSS.",
+            "It uses Gemini natively but supports Open VSX extensions.",
+            "To route AI through CVC:",
+            "",
+            "  1. Start CVC with [bold]--host 0.0.0.0[/bold] (or use a tunnel)",
+            "  2. Open your Firebase Studio workspace",
+            "  3. Install [bold]Continue.dev[/bold] or [bold]Cline[/bold] from Open VSX",
+            "  4. Configure the extension with:",
+            "     Base URL → [bold cyan]{endpoint}/v1[/bold cyan]",
+            "     API Key  → [cyan]cvc[/cyan]",
+            "     Model    → [cyan]{model}[/cyan]",
+            "",
+            "[dim]Firebase Studio does not support direct API endpoint override.[/dim]",
+            "[dim]Use extensions for custom model routing.[/dim]",
+        ],
+    },
+}
+
+
+def _format_tool_guide(tool_key: str, endpoint: str, model: str) -> Panel:
+    """Format a single tool's connection guide as a Rich Panel."""
+    guide = TOOL_GUIDES[tool_key]
+    name = guide["name"]
+    icon = guide["icon"]
+
+    # Pick platform-specific steps for CLI tools
+    if sys.platform == "win32" and "steps_win" in guide:
+        steps = guide["steps_win"]
+    elif "steps_unix" in guide:
+        steps = guide["steps_unix"]
+    else:
+        steps = guide.get("steps", [])
+
+    # Format steps with endpoint/model placeholders
+    formatted = []
+    for step in steps:
+        line = str(step).format(endpoint=endpoint, model=model)
+        formatted.append(f"  {line}")
+
+    return Panel(
+        "\n".join(formatted),
+        border_style="dim cyan",
+        title=f"[bold white]{icon} {name}[/bold white]",
+        title_align="left",
+        padding=(1, 2),
+    )
+
+
+# ---------------------------------------------------------------------------
 # serve
 # ---------------------------------------------------------------------------
 
@@ -509,17 +827,31 @@ def serve(host: str, port: int, do_reload: bool) -> None:
     # Server info panel
     info_lines = [
         f"  Endpoint   [bold cyan]{endpoint}[/bold cyan]",
+        f"  Chat API   [bold cyan]{endpoint}/v1/chat/completions[/bold cyan]",
+        f"  Models     [bold cyan]{endpoint}/v1/models[/bold cyan]",
         f"  Provider   [bold]{config.provider}[/bold]",
         f"  Model      [bold]{config.model}[/bold]",
         f"  Agent      [dim]{config.agent_id}[/dim]",
     ]
 
+    # API key status: check env + stored config
+    from cvc.core.models import GlobalConfig as GC_Serve
+    gc_serve = GC_Serve.load()
+
     env_key_map = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "google": "GOOGLE_API_KEY"}
     env_key = env_key_map.get(config.provider, "")
     if env_key:
-        has_key = bool(os.environ.get(env_key))
-        key_status = "[green]● set[/green]" if has_key else "[red]● missing[/red]"
+        has_env = bool(os.environ.get(env_key))
+        has_stored = bool(gc_serve.api_keys.get(config.provider))
+        if has_env:
+            key_status = "[green]● env var[/green]"
+        elif has_stored:
+            key_status = "[green]● saved[/green]"
+        else:
+            key_status = "[red]● missing[/red]"
         info_lines.append(f"  API Key    {key_status}  [dim]({env_key})[/dim]")
+    elif config.provider == "ollama":
+        info_lines.append(f"  API Key    [dim]not needed (local)[/dim]")
 
     console.print(
         Panel(
@@ -530,9 +862,26 @@ def serve(host: str, port: int, do_reload: bool) -> None:
         )
     )
 
+    # Quick connection reference
+    console.print()
     console.print(
-        f"\n  [dim]Point your agent to[/dim] [bold underline]{endpoint}/v1/chat/completions[/bold underline]\n"
-        f"  [dim]Press[/dim] [bold]Ctrl+C[/bold] [dim]to stop.[/dim]\n"
+        Panel(
+            "  [bold white]Connect your tools:[/bold white]\n\n"
+            f"  Base URL   [bold cyan]{endpoint}/v1[/bold cyan]\n"
+            f"  API Key    [cyan]cvc[/cyan]  [dim](any non-empty string works)[/dim]\n"
+            f"  Model      [cyan]{config.model}[/cyan]\n\n"
+            "  [dim]Works with: VS Code, Antigravity, Cursor, Cline, Continue.dev,\n"
+            "  Claude Code, Gemini CLI, Kiro CLI, Aider, Open WebUI,\n"
+            "  Firebase Studio, and any OpenAI-compatible tool.[/dim]\n\n"
+            "  [dim]Run[/dim] [bold]cvc connect[/bold] [dim]for tool-specific setup instructions.[/dim]",
+            border_style="blue",
+            title="[bold blue]Connect Your Tools[/bold blue]",
+            padding=(1, 2),
+        )
+    )
+
+    console.print(
+        f"\n  [dim]Press[/dim] [bold]Ctrl+C[/bold] [dim]to stop.[/dim]\n"
     )
 
     uvicorn.run(
@@ -542,6 +891,144 @@ def serve(host: str, port: int, do_reload: bool) -> None:
         reload=do_reload,
         log_level="info",
     )
+
+
+# ---------------------------------------------------------------------------
+# connect (interactive tool connection wizard)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", help="Proxy host.")
+@click.option("--port", default=8000, type=int, help="Proxy port.")
+@click.argument("tool", required=False, default=None)
+def connect(tool: str | None, host: str, port: int) -> None:
+    """Show how to connect your AI tool to CVC.
+
+    Run without arguments for an interactive picker, or specify a tool:
+
+      cvc connect vscode
+      cvc connect antigravity
+      cvc connect cursor
+      cvc connect cline
+      cvc connect claude-code
+      cvc connect gemini-cli
+      cvc connect kiro-cli
+      cvc connect aider
+      cvc connect open-webui
+      cvc connect firebase-studio
+      cvc connect --all
+    """
+    config = _get_config()
+    endpoint = f"http://{host}:{port}"
+    model = config.model
+
+    _banner("Connect Your Tools")
+
+    # Show the universal connection info first
+    console.print(
+        Panel(
+            f"  [bold white]CVC Proxy Endpoint[/bold white]\n\n"
+            f"  Base URL   [bold cyan]{endpoint}/v1[/bold cyan]\n"
+            f"  API Key    [cyan]cvc[/cyan]  [dim](any non-empty string — CVC handles auth)[/dim]\n"
+            f"  Model      [cyan]{model}[/cyan]\n\n"
+            f"  [dim]CVC exposes a fully OpenAI-compatible API.[/dim]\n"
+            f"  [dim]Any tool that supports custom OpenAI endpoints will work.[/dim]",
+            border_style="cyan",
+            title="[bold white]Universal Connection Info[/bold white]",
+            padding=(1, 2),
+        )
+    )
+    console.print()
+
+    if tool and tool == "--all":
+        # Show all guides
+        for key in TOOL_GUIDES:
+            console.print(_format_tool_guide(key, endpoint, model))
+            console.print()
+        return
+
+    if tool:
+        # Direct tool specified
+        key = tool.lower().replace(" ", "-")
+        # Allow shorthand lookups
+        aliases = {
+            "code": "vscode",
+            "vs-code": "vscode",
+            "visual-studio-code": "vscode",
+            "continue": "vscode-continue",
+            "continue.dev": "vscode-continue",
+            "cline": "vscode-cline",
+            "roo": "vscode-cline",
+            "copilot": "vscode-copilot",
+            "claude": "claude-code",
+            "claude-cli": "claude-code",
+            "gemini": "gemini-cli",
+            "kiro": "kiro-cli",
+            "webui": "open-webui",
+            "openwebui": "open-webui",
+            "firebase": "firebase-studio",
+            "idx": "firebase-studio",
+        }
+        key = aliases.get(key, key)
+
+        if key in TOOL_GUIDES:
+            console.print(_format_tool_guide(key, endpoint, model))
+        else:
+            _error(f"Unknown tool: [bold]{tool}[/bold]")
+            _info(f"Available: {', '.join(TOOL_GUIDES.keys())}")
+        return
+
+    # ─── Interactive picker ───────────────────────────────────────────────
+    categories = {
+        "IDE": [],
+        "IDE Extension": [],
+        "CLI Tool": [],
+        "Web Interface": [],
+        "Cloud IDE": [],
+    }
+    for key, guide in TOOL_GUIDES.items():
+        cat = guide.get("category", "Other")
+        if cat in categories:
+            categories[cat].append((key, guide))
+
+    # Build numbered list grouped by category
+    all_items: list[tuple[str, dict]] = []
+    colors = {"IDE": "cyan", "IDE Extension": "green", "CLI Tool": "yellow", "Web Interface": "magenta", "Cloud IDE": "red"}
+
+    for cat, items in categories.items():
+        if not items:
+            continue
+        color = colors.get(cat, "white")
+        console.print(f"  [{color}]{cat}[/{color}]")
+        for key, guide in items:
+            idx = len(all_items) + 1
+            all_items.append((key, guide))
+            console.print(
+                f"    [{color}]{idx}[/{color}]  {guide['icon']}  [bold]{guide['name']}[/bold]"
+            )
+        console.print()
+
+    console.print(f"    [dim]{len(all_items) + 1}[/dim]  📋  [bold]Show all guides at once[/bold]")
+    console.print()
+
+    choice = click.prompt(
+        "  Pick a tool (number)",
+        type=click.IntRange(1, len(all_items) + 1),
+        default=1,
+    )
+
+    console.print()
+
+    if choice == len(all_items) + 1:
+        # Show all
+        for key in TOOL_GUIDES:
+            console.print(_format_tool_guide(key, endpoint, model))
+            console.print()
+    else:
+        key, _ = all_items[choice - 1]
+        console.print(_format_tool_guide(key, endpoint, model))
+
+    console.print()
 
 
 # ---------------------------------------------------------------------------
