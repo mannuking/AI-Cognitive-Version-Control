@@ -52,6 +52,20 @@ logger = logging.getLogger("cvc.proxy")
 
 
 # ---------------------------------------------------------------------------
+# Time Machine configuration
+# ---------------------------------------------------------------------------
+
+# When CVC_TIME_MACHINE=1 (set by ``cvc launch``), auto-commit fires much
+# more aggressively — every 3 assistant turns instead of every 10.
+_TIME_MACHINE_ENABLED: bool = os.environ.get("CVC_TIME_MACHINE", "0") == "1"
+_TIME_MACHINE_INTERVAL: int = int(os.environ.get("CVC_TIME_MACHINE_INTERVAL", "3"))
+_NORMAL_INTERVAL: int = int(os.environ.get("CVC_AUTO_COMMIT_INTERVAL", "10"))
+
+# Session detection — if no traffic for this many seconds, new session
+_SESSION_TIMEOUT: int = int(os.environ.get("CVC_SESSION_TIMEOUT", "1800"))  # 30 min
+
+
+# ---------------------------------------------------------------------------
 # Application state (module-level singletons, initialised in lifespan)
 # ---------------------------------------------------------------------------
 
@@ -61,6 +75,66 @@ _engine: CVCEngine | None = None
 _adapter: BaseAdapter | None = None
 _bridge: VCSBridge | None = None
 _graph: Any = None  # Compiled LangGraph
+
+
+# ---------------------------------------------------------------------------
+# Session tracking
+# ---------------------------------------------------------------------------
+
+class _SessionTracker:
+    """Lightweight tracker for agent sessions going through the proxy."""
+
+    def __init__(self) -> None:
+        self.sessions: list[dict[str, Any]] = []
+        self._current: dict[str, Any] | None = None
+        self._last_request_ts: float = 0.0
+
+    def touch(self, *, tool_hint: str = "") -> dict[str, Any]:
+        """
+        Called on every inbound request.  Starts a new session if enough
+        idle time has elapsed (Time Machine session splitting).
+        """
+        now = time.time()
+        gap = now - self._last_request_ts if self._last_request_ts else 0
+        self._last_request_ts = now
+
+        if self._current is None or gap > _SESSION_TIMEOUT:
+            # Archive previous session
+            if self._current is not None:
+                self._current["ended_at"] = now - gap
+                self.sessions.append(self._current)
+
+            self._current = {
+                "id": len(self.sessions) + 1,
+                "started_at": now,
+                "ended_at": None,
+                "tool": tool_hint or "unknown",
+                "messages": 0,
+                "commits": 0,
+                "branch_at_start": "",
+            }
+
+        self._current["messages"] += 1
+        if tool_hint and self._current["tool"] == "unknown":
+            self._current["tool"] = tool_hint
+        return self._current
+
+    @property
+    def current(self) -> dict[str, Any] | None:
+        return self._current
+
+    def record_commit(self) -> None:
+        if self._current:
+            self._current["commits"] += 1
+
+    def all_sessions(self) -> list[dict[str, Any]]:
+        result = list(self.sessions)
+        if self._current:
+            result.append({**self._current, "active": True})
+        return result
+
+
+_session_tracker = _SessionTracker()
 
 
 def _load_config() -> CVCConfig:
@@ -219,24 +293,49 @@ async def chat_completions(raw_request: Request) -> JSONResponse:
 
     # 5. Auto-commit if enabled
     if request.cvc_auto_commit and _should_auto_commit():
+        auto_msg = _build_auto_commit_message()
         auto_result = _engine.commit(
             CVCCommitRequest(
-                message=f"Auto-checkpoint after {len(_engine.context_window)} messages",
+                message=auto_msg,
                 commit_type="checkpoint",
             )
         )
         if auto_result.success:
-            response.model_dump()  # Ensure serialisable
+            _session_tracker.record_commit()
             logger.info("Auto-commit: %s", auto_result.commit_hash and auto_result.commit_hash[:12])
 
     return JSONResponse(content=response.model_dump())
 
 
 def _should_auto_commit() -> bool:
-    """Heuristic: auto-commit every 10 assistant turns."""
+    """
+    Auto-commit heuristic.
+
+    - **Time Machine mode** (``CVC_TIME_MACHINE=1``): commits every
+      ``_TIME_MACHINE_INTERVAL`` assistant turns (default 3).
+    - **Normal mode**: commits every ``_NORMAL_INTERVAL`` turns (default 10).
+    """
     assert _engine is not None
     assistant_msgs = [m for m in _engine.context_window if m.role == "assistant"]
-    return len(assistant_msgs) > 0 and len(assistant_msgs) % 10 == 0
+    count = len(assistant_msgs)
+    if count == 0:
+        return False
+    interval = _TIME_MACHINE_INTERVAL if _TIME_MACHINE_ENABLED else _NORMAL_INTERVAL
+    return count % interval == 0
+
+
+def _build_auto_commit_message() -> str:
+    """Generate a concise auto-commit message from recent context."""
+    assert _engine is not None
+    recent = [m for m in _engine.context_window if m.role in ("user", "assistant")]
+    if not recent:
+        return "Auto-checkpoint"
+    # Use the last user message as summary hint
+    last_user = next((m for m in reversed(recent) if m.role == "user"), None)
+    if last_user:
+        summary = last_user.content[:120].replace("\n", " ").strip()
+        return f"Auto: {summary}"
+    return f"Auto-checkpoint ({len(recent)} messages)"
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +413,35 @@ async def cvc_tools() -> list[dict[str, Any]]:
     return CVC_TOOLS
 
 
+@app.get("/cvc/sessions")
+async def cvc_sessions() -> dict[str, Any]:
+    """
+    Return the session history — every contiguous period of tool-proxy
+    interaction.  This powers ``cvc sessions`` and the Time Machine UI.
+    """
+    sessions = _session_tracker.all_sessions()
+    return {
+        "time_machine": _TIME_MACHINE_ENABLED,
+        "auto_commit_interval": _TIME_MACHINE_INTERVAL if _TIME_MACHINE_ENABLED else _NORMAL_INTERVAL,
+        "session_timeout_seconds": _SESSION_TIMEOUT,
+        "total": len(sessions),
+        "sessions": sessions,
+    }
+
+
+@app.get("/cvc/config")
+async def cvc_runtime_config() -> dict[str, Any]:
+    """Return the current proxy runtime configuration."""
+    return {
+        "time_machine": _TIME_MACHINE_ENABLED,
+        "auto_commit_interval": _TIME_MACHINE_INTERVAL if _TIME_MACHINE_ENABLED else _NORMAL_INTERVAL,
+        "session_timeout_seconds": _SESSION_TIMEOUT,
+        "provider": _config.provider if _config else "unknown",
+        "model": _config.model if _config else "unknown",
+        "agent_id": _config.agent_id if _config else "unknown",
+    }
+
+
 # ---------------------------------------------------------------------------
 # VCS Bridge endpoints
 # ---------------------------------------------------------------------------
@@ -352,9 +480,8 @@ async def auth_passthrough_middleware(request: Request, call_next):
     (or x-api-key header) and stash it on request.state so downstream
     handlers can forward it to the upstream provider.
 
-    This enables tools like Claude Code CLI (which send their own
-    ANTHROPIC_API_KEY) and Codex CLI to work through CVC without CVC
-    needing its own stored key for that provider.
+    Also tracks sessions and identifies the connecting tool from
+    the User-Agent header (e.g. 'claude-code/1.x', 'aider/0.x').
     """
     # Extract client auth from the incoming request
     auth_header = request.headers.get("authorization", "")
@@ -366,6 +493,26 @@ async def auth_passthrough_middleware(request: Request, call_next):
         request.state.client_api_key = x_api_key
     if auth_header.lower().startswith("bearer "):
         request.state.client_bearer = auth_header[7:].strip()
+
+    # Session tracking — detect tool from User-Agent
+    ua = request.headers.get("user-agent", "").lower()
+    tool_hint = ""
+    if "claude" in ua:
+        tool_hint = "claude"
+    elif "aider" in ua:
+        tool_hint = "aider"
+    elif "codex" in ua:
+        tool_hint = "codex"
+    elif "cursor" in ua:
+        tool_hint = "cursor"
+    elif "copilot" in ua:
+        tool_hint = "copilot"
+    elif "gemini" in ua:
+        tool_hint = "gemini"
+
+    session = _session_tracker.touch(tool_hint=tool_hint)
+    if _engine and not session.get("branch_at_start"):
+        session["branch_at_start"] = _engine.active_branch
 
     return await call_next(request)
 

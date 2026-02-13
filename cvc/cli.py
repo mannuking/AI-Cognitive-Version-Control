@@ -351,10 +351,13 @@ class CvcGroup(click.Group):
         table.add_column("Description", style="dim white")
 
         cmds = [
+            ("launch <tool>", "Auto-launch any AI tool through CVC"),
+            ("up", "One-command start (setup + init + serve)"),
             ("setup", "Interactive first-time setup"),
             ("serve", "Start the Cognitive Proxy server"),
             ("connect", "Connect your AI tool to CVC"),
             ("mcp", "Start CVC as an MCP server"),
+            ("sessions", "View Time Machine session history"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
             ("log", "View commit history"),
@@ -381,12 +384,15 @@ class CvcGroup(click.Group):
         console.print()
         console.print(
             Panel(
-                "[bold white]Get started in 30 seconds:[/bold white]\n\n"
+                "[bold white]Get started in 10 seconds:[/bold white]\n\n"
+                "  [cyan]$[/cyan] cvc launch claude      [dim]# Zero-config: launches Claude Code through CVC[/dim]\n"
+                "  [cyan]$[/cyan] cvc launch aider       [dim]# Zero-config: launches Aider through CVC[/dim]\n"
+                "  [cyan]$[/cyan] cvc up                 [dim]# One command: setup + init + serve[/dim]\n\n"
+                "[bold white]Or step by step:[/bold white]\n\n"
                 "  [cyan]$[/cyan] cvc setup              [dim]# Pick your provider & model[/dim]\n"
                 "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy (API key tools)[/dim]\n"
                 "  [cyan]$[/cyan] cvc mcp                [dim]# Start MCP server (auth-based IDEs)[/dim]\n"
-                "  [cyan]$[/cyan] cvc connect            [dim]# Wire up Cursor, Cline, Claude Code…[/dim]\n"
-                "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000[/dim]",
+                "  [cyan]$[/cyan] cvc connect            [dim]# Wire up Cursor, Cline, Claude Code…[/dim]",
                 border_style="green",
                 title="[bold green]Quick Start[/bold green]",
                 padding=(1, 2),
@@ -447,35 +453,44 @@ def main(ctx: click.Context, verbose: bool) -> None:
     console.print("  [bold white]What would you like to do?[/bold white]\n")
 
     menu = [
-        ("1", "Setup", "Configure provider, model & API key", "cyan"),
-        ("2", "Serve", "Start the CVC proxy server", "green"),
-        ("3", "Connect", "Wire up your AI tool to CVC", "yellow"),
-        ("4", "MCP", "Start MCP server (auth-based IDEs)", "magenta"),
-        ("5", "Status", "View current project status", "blue"),
-        ("6", "Doctor", "Health check your environment", "dim"),
-        ("7", "Help", "Show all available commands", "dim"),
+        ("1", "Launch", "Auto-launch an AI tool through CVC", "bold green"),
+        ("2", "Up", "One-command start (setup + init + serve)", "green"),
+        ("3", "Setup", "Configure provider, model & API key", "cyan"),
+        ("4", "Serve", "Start the CVC proxy server", "yellow"),
+        ("5", "Connect", "Wire up your AI tool to CVC", "yellow"),
+        ("6", "MCP", "Start MCP server (auth-based IDEs)", "magenta"),
+        ("7", "Sessions", "View Time Machine session history", "blue"),
+        ("8", "Status", "View current project status", "blue"),
+        ("9", "Doctor", "Health check your environment", "dim"),
+        ("0", "Help", "Show all available commands", "dim"),
     ]
     for num, label, desc, color in menu:
         console.print(f"    [{color}]{num}[/{color}]  [bold]{label}[/bold]  [dim]— {desc}[/dim]")
 
     console.print()
 
-    choice = click.prompt("  Pick an option", type=click.IntRange(1, 7), default=2)
+    choice = click.prompt("  Pick an option", type=click.IntRange(0, 9), default=1)
     console.print()
 
     if choice == 1:
-        ctx.invoke(setup)
+        ctx.invoke(launch)
     elif choice == 2:
-        ctx.invoke(serve)
+        ctx.invoke(up)
     elif choice == 3:
-        ctx.invoke(connect)
+        ctx.invoke(setup)
     elif choice == 4:
-        ctx.invoke(mcp)
+        ctx.invoke(serve)
     elif choice == 5:
-        ctx.invoke(status)
+        ctx.invoke(connect)
     elif choice == 6:
-        ctx.invoke(doctor)
+        ctx.invoke(mcp)
     elif choice == 7:
+        ctx.invoke(sessions)
+    elif choice == 8:
+        ctx.invoke(status)
+    elif choice == 9:
+        ctx.invoke(doctor)
+    elif choice == 0:
         ctx.command.format_help(ctx, click.HelpFormatter())
 
 
@@ -2079,6 +2094,313 @@ def doctor() -> None:
         _warn("Some checks failed. See details above.")
 
     console.print()
+
+
+# ---------------------------------------------------------------------------
+# launch (zero-config auto-launch for any AI tool)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("tool", required=False, default=None)
+@click.option("--host", default="127.0.0.1", help="Proxy bind host.")
+@click.option("--port", default=8000, type=int, help="Proxy bind port.")
+@click.option("--no-time-machine", is_flag=True, help="Disable aggressive auto-commit.")
+@click.argument("extra_args", nargs=-1, type=click.UNPROCESSED)
+def launch(tool: str | None, host: str, port: int, no_time_machine: bool, extra_args: tuple[str, ...]) -> None:
+    """Zero-config auto-launch: start any AI tool through CVC.
+
+    \b
+    Examples:
+      cvc launch claude       # Launch Claude Code CLI with CVC
+      cvc launch aider        # Launch Aider through CVC proxy
+      cvc launch codex        # Launch OpenAI Codex CLI through CVC
+      cvc launch cursor       # Open Cursor with CVC auto-configured
+      cvc launch code         # Open VS Code with Copilot BYOK configured
+
+    CVC automatically:
+      1. Sets up configuration (if first run)
+      2. Initialises .cvc/ in the current project (if needed)
+      3. Starts the proxy server in the background
+      4. Configures the tool's environment variables / config files
+      5. Launches the tool — every conversation is time-machined
+    """
+    from cvc.launcher import launch_tool, exec_tool, list_launchable_tools, resolve_tool
+
+    _banner("Time Machine Launcher")
+
+    # If no tool specified, show interactive picker
+    if tool is None:
+        tools = list_launchable_tools()
+
+        console.print("  [bold white]Pick an AI tool to launch through CVC:[/bold white]\n")
+
+        # Group by kind
+        cli_tools = [t for t in tools if t["kind"] == "cli"]
+        ide_tools = [t for t in tools if t["kind"] == "ide"]
+
+        idx = 1
+        index_map: dict[int, str] = {}
+
+        if cli_tools:
+            console.print("  [bold cyan]CLI Tools[/bold cyan]")
+            for t in cli_tools:
+                status = "[green]●[/green]" if t["installed"] else "[red]○[/red]"
+                console.print(
+                    f"    [cyan]{idx}[/cyan]  {status}  [bold]{t['name']}[/bold]  "
+                    f"[dim]({t['binary']})[/dim]"
+                )
+                index_map[idx] = t["key"]
+                idx += 1
+            console.print()
+
+        if ide_tools:
+            console.print("  [bold yellow]IDEs[/bold yellow]")
+            for t in ide_tools:
+                status = "[green]●[/green]" if t["installed"] else "[red]○[/red]"
+                console.print(
+                    f"    [yellow]{idx}[/yellow]  {status}  [bold]{t['name']}[/bold]  "
+                    f"[dim]({t['binary']})[/dim]"
+                )
+                index_map[idx] = t["key"]
+                idx += 1
+            console.print()
+
+        console.print("  [dim]● = installed   ○ = not found on PATH[/dim]")
+        console.print()
+
+        choice = click.prompt("  Pick a tool", type=click.IntRange(1, len(index_map)), default=1)
+        tool = index_map[choice]
+        console.print()
+
+    # Resolve alias
+    resolved = resolve_tool(tool)
+    if resolved is None:
+        _error(f"Unknown tool: [bold]{tool}[/bold]")
+        _info("Run [bold]cvc launch[/bold] (no arguments) to see available tools.")
+        return
+
+    console.print(f"  [bold]Launching[/bold] [cyan]{resolved}[/cyan] through CVC…")
+    console.print()
+
+    time_machine = not no_time_machine
+
+    result = launch_tool(
+        resolved,
+        host=host,
+        port=port,
+        extra_args=list(extra_args) if extra_args else None,
+        time_machine=time_machine,
+    )
+
+    # Handle tuple return (CLI tools return (report, cmd, env))
+    cmd = None
+    child_env = None
+    if isinstance(result, tuple):
+        result, cmd, child_env = result
+
+    if not result["success"]:
+        _error(result.get("error", "Launch failed"))
+        if "need_setup" in result.get("steps", []):
+            _hint("Run [bold]cvc setup[/bold] to configure your provider and API key.")
+        return
+
+    # Show what happened
+    steps = result.get("steps", [])
+    if "auto_init" in steps:
+        _success("Auto-initialised .cvc/ in current directory")
+    if "proxy_running" in steps:
+        _success(f"CVC proxy running at [bold cyan]{result['endpoint']}[/bold cyan]")
+
+    if time_machine:
+        _success("Time Machine mode: [bold]ON[/bold] (auto-commit every 3 turns)")
+
+    # Show env overrides
+    env_overrides = result.get("env_overrides", {})
+    if env_overrides:
+        for k, v in env_overrides.items():
+            _info(f"[dim]{k}[/dim] = [cyan]{v}[/cyan]")
+
+    # Show auto-config results
+    auto_config = result.get("auto_config", {})
+    for action in auto_config.get("actions", []):
+        _success(action)
+    if "manual_step" in auto_config:
+        _warn(auto_config["manual_step"])
+
+    console.print()
+
+    # For CLI tools, exec into the tool
+    if cmd and child_env:
+        console.print(
+            Panel(
+                f"  [bold white]{result['tool']}[/bold white] is launching…\n"
+                f"  [dim]All conversations flow through CVC automatically.[/dim]\n"
+                f"  [dim]Use /cvc commands or CVC tools for version control.[/dim]",
+                border_style="green",
+                title="[bold green]Time Machine Active[/bold green]",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+        exit_code = exec_tool(cmd, child_env)
+        raise SystemExit(exit_code)
+    else:
+        # IDE was launched
+        console.print(
+            Panel(
+                f"  [bold white]{result['tool']}[/bold white] has been opened.\n"
+                f"  [dim]CVC proxy is running in the background.[/dim]\n"
+                f"  [dim]Conversations will be auto-saved by the Time Machine.[/dim]",
+                border_style="green",
+                title="[bold green]Time Machine Active[/bold green]",
+                padding=(1, 2),
+            )
+        )
+        console.print()
+
+
+# ---------------------------------------------------------------------------
+# up (one-command start: setup + init + serve)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", help="Proxy bind host.")
+@click.option("--port", default=8000, type=int, help="Proxy bind port.")
+@click.option("--time-machine/--no-time-machine", default=True, help="Enable Time Machine auto-commit.")
+def up(host: str, port: int, time_machine: bool) -> None:
+    """One-command start: setup (if needed) + init (if needed) + serve.
+
+    \b
+    This is the fastest way to get CVC running:
+      $ cvc up
+
+    If CVC hasn't been set up yet, it runs the setup wizard first.
+    If the current project has no .cvc/, it initialises one.
+    Then it starts the proxy server with Time Machine enabled.
+    """
+    from cvc.core.models import get_global_config_dir, GlobalConfig, CVCConfig, discover_cvc_root
+
+    _banner("One-Command Start")
+
+    # Step 1: Check setup
+    gc_path = get_global_config_dir() / "config.json"
+    if not gc_path.exists():
+        console.print("  [yellow]First-time setup required.[/yellow]")
+        console.print()
+        click.get_current_context().invoke(setup)
+        console.print()
+        # Re-check after setup
+        if not gc_path.exists():
+            _error("Setup was not completed. Run [bold]cvc setup[/bold] manually.")
+            return
+
+    gc = GlobalConfig.load()
+    _success(f"Config: [bold]{gc.provider}[/bold] / [bold]{gc.model}[/bold]")
+
+    # Step 2: Check init
+    project_root = discover_cvc_root()
+    if project_root is None:
+        config = CVCConfig.for_project(project_root=Path.cwd())
+        config.ensure_dirs()
+        from cvc.core.database import ContextDatabase
+        ContextDatabase(config).close()
+        _success(f"Initialised .cvc/ at [dim]{Path.cwd()}[/dim]")
+    else:
+        _success(f"Project CVC found at [dim]{project_root}[/dim]")
+
+    # Step 3: Set Time Machine env
+    if time_machine:
+        os.environ["CVC_TIME_MACHINE"] = "1"
+        _success("Time Machine mode: [bold]ON[/bold]")
+
+    console.print()
+
+    # Step 4: Start the proxy
+    click.get_current_context().invoke(serve, host=host, port=port, do_reload=False)
+
+
+# ---------------------------------------------------------------------------
+# sessions (view Time Machine session history)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", help="Proxy host.")
+@click.option("--port", default=8000, type=int, help="Proxy port.")
+def sessions(host: str, port: int) -> None:
+    """View Time Machine session history.
+
+    Shows all agent sessions tracked by the CVC proxy, including
+    which tool was used, message counts, and auto-commit stats.
+
+    The proxy must be running for this command to work.
+    """
+    import httpx
+    from datetime import datetime
+
+    _banner("Session History")
+
+    endpoint = f"http://{host}:{port}"
+
+    try:
+        r = httpx.get(f"{endpoint}/cvc/sessions", timeout=5.0)
+        r.raise_for_status()
+        data = r.json()
+    except httpx.ConnectError:
+        _error(f"CVC proxy is not running on {endpoint}")
+        _hint("Start the proxy: [bold]cvc serve[/bold] or [bold]cvc up[/bold]")
+        return
+    except Exception as exc:
+        _error(f"Failed to fetch sessions: {exc}")
+        return
+
+    # Config info
+    tm_status = "[bold green]ON[/bold green]" if data.get("time_machine") else "[dim]OFF[/dim]"
+    interval = data.get("auto_commit_interval", "?")
+    console.print(
+        Panel(
+            f"  Time Machine    {tm_status}\n"
+            f"  Auto-commit     every [bold]{interval}[/bold] assistant turns\n"
+            f"  Session timeout [dim]{data.get('session_timeout_seconds', '?')}s[/dim]",
+            border_style="cyan",
+            title="[bold white]Configuration[/bold white]",
+            padding=(0, 2),
+        )
+    )
+    console.print()
+
+    session_list = data.get("sessions", [])
+    if not session_list:
+        _warn("No sessions recorded yet.")
+        _info("Sessions are tracked when tools send requests through the proxy.")
+        return
+
+    table = Table(
+        box=box.ROUNDED,
+        border_style="dim",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("#", width=4)
+    table.add_column("Tool", style="cyan", width=12)
+    table.add_column("Started", width=20)
+    table.add_column("Messages", justify="right", width=10)
+    table.add_column("Commits", justify="right", width=10)
+    table.add_column("Status", width=10)
+
+    for s in session_list:
+        started = datetime.fromtimestamp(s["started_at"]).strftime("%Y-%m-%d %H:%M") if s.get("started_at") else "?"
+        status_str = "[bold green]active[/bold green]" if s.get("active") else "[dim]ended[/dim]"
+        table.add_row(
+            str(s.get("id", "?")),
+            s.get("tool", "?"),
+            started,
+            str(s.get("messages", 0)),
+            str(s.get("commits", 0)),
+            status_str,
+        )
+
+    console.print(table)
+    console.print(f"\n  [dim]{len(session_list)} session(s) total[/dim]\n")
 
 
 if __name__ == "__main__":

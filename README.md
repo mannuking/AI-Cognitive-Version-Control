@@ -306,15 +306,37 @@ uv sync --extra dev           # or: pip install -e ".[dev]"
 
 ### ▶️ Run
 
+**Zero-config launch — the fastest way:**
+
 ```bash
-# Navigate to any project where you want CVC
+# Launch any AI tool through CVC — everything is automatic
+cvc launch claude          # Claude Code CLI
+cvc launch aider           # Aider
+cvc launch codex           # OpenAI Codex CLI
+cvc launch cursor          # Cursor IDE
+cvc launch code            # VS Code
+
+# Or one-command start (setup + init + serve)
+cvc up
+```
+
+`cvc launch` automatically:
+1. Runs setup (if first time)
+2. Initialises `.cvc/` (if needed)
+3. Starts the proxy in the background
+4. Sets environment variables for the tool
+5. Launches the tool — **every conversation is time-machined**
+
+**Step-by-step (if you prefer):**
+
+```bash
 cd ~/my-project
 
 # Interactive guided setup (picks provider, saves preferences, initialises .cvc/)
 cvc setup
 
-# — OR — manual setup:
-cvc init
+# Start the proxy
+cvc serve
 ```
 
 ### 🔑 Set Your API Key
@@ -459,6 +481,18 @@ Run `cvc connect` for interactive, tool-specific setup instructions.
 </thead>
 <tbody>
 <tr>
+<td><code>cvc launch &lt;tool&gt;</code></td>
+<td><strong>Zero-config</strong> — auto-launch any AI tool through CVC</td>
+</tr>
+<tr>
+<td><code>cvc up</code></td>
+<td>One command: setup + init + serve with Time Machine</td>
+</tr>
+<tr>
+<td><code>cvc sessions</code></td>
+<td>View Time Machine session history</td>
+</tr>
+<tr>
 <td><code>cvc setup</code></td>
 <td>Interactive first-time setup (choose provider &amp; model)</td>
 </tr>
@@ -570,6 +604,57 @@ the agent's context to what it was when that code was written.
 ✨ **True cognitive time-travel.**
 
 </div>
+
+<br>
+
+---
+
+## ⏱️ Time Machine Mode
+
+<div align="center">
+
+### Like macOS Time Machine, but for AI agent conversations.
+
+**Every conversation is automatically saved. Nothing is ever lost.**
+
+</div>
+
+<br>
+
+When you use `cvc launch` or `cvc up`, **Time Machine mode** is enabled by default:
+
+| Feature | Description |
+|---------|-------------|
+| **Auto-commit** | Every 3 assistant turns (configurable via `CVC_TIME_MACHINE_INTERVAL`) |
+| **Session tracking** | Detects which tool is connected, tracks start/end, message counts |
+| **Smart messages** | Auto-commits include a summary of the recent conversation |
+| **Zero friction** | No manual steps — just `cvc launch claude` and go |
+
+```bash
+# View session history
+cvc sessions
+
+# Customize auto-commit interval
+CVC_TIME_MACHINE_INTERVAL=5 cvc up     # Commit every 5 turns
+
+# Disable time machine for manual control
+cvc launch claude --no-time-machine
+```
+
+<br>
+
+### Supported Tools
+
+| Tool | Launch Command | How It Connects |
+|------|---------------|-----------------|
+| Claude Code CLI | `cvc launch claude` | Sets `ANTHROPIC_BASE_URL` → native `/v1/messages` |
+| Aider | `cvc launch aider` | Sets `OPENAI_API_BASE` + model flag |
+| OpenAI Codex CLI | `cvc launch codex` | Sets `OPENAI_API_BASE` |
+| Gemini CLI | `cvc launch gemini` | Sets `GEMINI_API_BASE_URL` |
+| Kiro CLI | `cvc launch kiro` | Sets `OPENAI_API_BASE` |
+| Cursor | `cvc launch cursor` | Writes `.cursor/mcp.json` + opens IDE |
+| VS Code | `cvc launch code` | Writes `.vscode/mcp.json` + configures BYOK |
+| Windsurf | `cvc launch windsurf` | Writes MCP config + opens IDE |
 
 <br>
 
