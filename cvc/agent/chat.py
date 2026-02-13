@@ -631,7 +631,7 @@ class AgentSession:
             render_auto_commit(msg, result.commit_hash or "")
             self._assistant_turns_since_commit = 0
 
-    def handle_slash_command(self, command: str) -> bool:
+    async def handle_slash_command(self, command: str) -> bool:
         """
         Handle a slash command. Returns True if the command was handled,
         False if we should exit.
@@ -777,7 +777,7 @@ class AgentSession:
             if not arg:
                 render_error("Usage: /web <search query>")
             else:
-                self._handle_web_search(arg)
+                await self._handle_web_search(arg)
 
         elif cmd == "/git":
             self._handle_git_command(arg)
@@ -817,12 +817,12 @@ class AgentSession:
             auto_context=auto_ctx,
         )
 
-    def _handle_web_search(self, query: str) -> None:
+    async def _handle_web_search(self, query: str) -> None:
         """Run a web search and display results."""
         render_info(f"Searching the web for: {query}")
         try:
             from cvc.agent.web_search import web_search, format_search_results
-            results = asyncio.get_event_loop().run_until_complete(web_search(query))
+            results = await web_search(query)
             text = format_search_results(results, query)
             render_web_results(text)
         except Exception as e:
@@ -1314,7 +1314,7 @@ async def _run_agent_async(
 
             # Handle slash commands
             if user_input.startswith("/"):
-                should_continue = session.handle_slash_command(user_input)
+                should_continue = await session.handle_slash_command(user_input)
                 if not should_continue:
                     break
                 continue
