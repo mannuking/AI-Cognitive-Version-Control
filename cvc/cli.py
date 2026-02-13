@@ -41,13 +41,14 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 LOGO = """[bold #CC3333]
-   ██████ ██    ██  ██████
-  ██      ██    ██ ██
-  ██      ██    ██ ██
-  ██       ██  ██  ██
-   ██████   ████    ██████[/bold #CC3333]"""
+ ██████╗ ██╗   ██╗  ██████╗
+██╔════╝ ██║   ██║ ██╔════╝
+██║      ██║   ██║ ██║
+██║      ╚██╗ ██╔╝ ██║
+╚██████╗  ╚████╔╝  ╚██████╗
+ ╚═════╝   ╚═══╝    ╚═════╝[/bold #CC3333]"""
 
-TAGLINE = "[#8B7070]Cognitive Version Control — Git for the AI Mind[/#8B7070]"
+TAGLINE = "[#8B7070]Cognitive Version Control — Git for the AI Agents[/#8B7070]"
 
 try:
     from cvc import __version__ as VERSION
@@ -56,20 +57,57 @@ except ImportError:
 
 
 def _banner(subtitle: str = "") -> None:
-    """Print the CVC banner."""
+    """Print the CVC banner with custom top border (Meena center, version right)."""
+    from rich.box import Box as _Box
+
     content = f"{LOGO}\n\n{TAGLINE}"
     if subtitle:
-        content += f"\n[bold #E8D0D0]{subtitle}[/bold #E8D0D0]"
+        content += f"\n\n[bold #E8D0D0]{subtitle}[/bold #E8D0D0]"
+
+    # ── Custom top border: ── Meena ──────── v1.x.x ──
+    tw = console.width or 80
+    ver = f" v{VERSION} "
+    meena = " Meena "
+    inner = tw - 2  # space between ╭ and ╮
+    center = inner // 2
+    m_start = max(center - len(meena) // 2, 1)
+    m_end = m_start + len(meena)
+    v_start = max(inner - len(ver), m_end + 1)
+
+    top = Text()
+    top.append("╭", style="#8B0000")
+    top.append("─" * m_start, style="#8B0000")
+    top.append(meena, style="bold #CC3333")
+    gap = v_start - m_end
+    top.append("─" * max(gap, 1), style="#8B0000")
+    top.append(ver, style="bold #FF4444")
+    remaining = inner - v_start - len(ver)
+    top.append("─" * max(remaining, 0), style="#8B0000")
+    top.append("╮", style="#8B0000")
+    console.print(top)
+
+    # Body + bottom border via Panel with no-top-border custom box
+    _NO_TOP_BOX = _Box(
+        "│  │\n"
+        "│  │\n"
+        "├──┤\n"
+        "│  │\n"
+        "├──┤\n"
+        "│  │\n"
+        "├──┤\n"
+        "╰──╯\n"
+    )
     console.print(
         Panel(
             content,
+            box=_NO_TOP_BOX,
             border_style="#8B0000",
             padding=(1, 4),
-            title=f"[bold #FF4444]v{VERSION}[/bold #FF4444]",
-            title_align="right",
+            width=tw,
             subtitle="[#8B7070]Time Machine for AI Agents[/#8B7070]",
             subtitle_align="center",
-        )
+        ),
+        highlight=False,
     )
     console.print()
 
@@ -423,19 +461,8 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
     if not gc_path.exists():
         # ─── First run — setup then straight into the agent ──────────────
-        _banner()
-        console.print(
-            Panel(
-                "[bold white]Welcome to CVC![/bold white]\n\n"
-                "Looks like this is your [bold #CC3333]first time[/bold #CC3333] here.\n"
-                "Let's get you set up — it takes about 30 seconds.",
-                border_style="#7B3030",
-                title="[bold #CCAA44]First Run[/bold #CCAA44]",
-                padding=(1, 3),
-            )
-        )
-        console.print()
-        ctx.invoke(setup)
+        _banner(subtitle="Welcome to CVC!\n\nLooks like this is your first time here.\nLet's get you set up — it takes about 30 seconds.")
+        ctx.invoke(setup, first_run=True)
         # After setup, fall through to launch the agent
 
     # ─── Launch the agent directly ───────────────────────────────────────
@@ -460,10 +487,10 @@ MODEL_CATALOG = {
         ("gpt-4.1", "Smartest non-reasoning model", "Mid-tier"),
     ],
     "google": [
-        ("gemini-2.5-flash", "Best price-performance (GA) — recommended", "Standard"),
+        ("gemini-3-pro-preview", "Newest multimodal & agentic", "Premium"),
+        ("gemini-3-flash-preview", "Fast Gemini 3", "Standard"),
         ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
-        ("gemini-3-pro-preview", "Newest multimodal & agentic (preview)", "Premium"),
-        ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
+        ("gemini-2.5-flash", "Best price-performance (GA)", "Standard"),
     ],
     "ollama": [
         ("qwen2.5-coder:7b", "Best coding model — 11M+ pulls", "~4 GB"),
@@ -529,18 +556,24 @@ def agent(provider: str | None, model: str, api_key: str) -> None:
 )
 @click.option("--model", default="", help="Model override (uses provider default if empty).")
 @click.option("--api-key", default="", help="API key (prompted interactively if omitted).")
-def setup(provider: str | None, model: str, api_key: str) -> None:
+def setup(provider: str | None, model: str, api_key: str, first_run: bool = False) -> None:
     """Interactive first-time setup — pick your provider, model, and go."""
     from cvc.adapters import PROVIDER_DEFAULTS
     from cvc.core.models import GlobalConfig as GC_Init, get_global_config_dir
 
-    _banner("Setup Wizard")
+    # Only show banner if not a first run (first run already showed it)
+    if not first_run:
+        _banner("Setup Wizard")
 
     # ─── Detect existing configuration ───────────────────────────────────
+    gc_file = get_global_config_dir() / "config.json"
     existing_gc = GC_Init.load()
-    has_existing = bool(existing_gc.provider)
+    # Only treat as "existing" if the config file actually exists on disk
+    # (GlobalConfig has defaults like provider="anthropic", so bool(provider)
+    # would always be True even on a fresh install)
+    has_existing = gc_file.exists() and bool(existing_gc.provider)
 
-    if has_existing and not provider:
+    if has_existing and not provider and not first_run:
         # Show current config summary and let user choose
         masked_keys = {}
         for prov, key in existing_gc.api_keys.items():
@@ -698,7 +731,7 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         providers = [
             (("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "#CC3333")),
             (("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "#CC6666")),
-            (("google", "Google", "Gemini 2.5 Flash, Gemini 2.5 Pro", "#AA8844")),
+            (("google", "Google", "Gemini 3/2.5 Pro, Gemini 3/2.5 Flash", "#AA8844")),
             ("ollama", "Ollama", "Local models — no API key needed!", "magenta"),
         ]
         for i, (key, name, desc, color) in enumerate(providers, 1):
@@ -710,7 +743,6 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         choice = click.prompt(
             "  Enter number",
             type=click.IntRange(1, 4),
-            default=1,
         )
         provider = providers[choice - 1][0]
 
@@ -738,7 +770,8 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     table.add_column("", width=3)
 
     for i, (mid, desc, tier) in enumerate(models, 1):
-        marker = "[bold #55AA55]●[/bold #55AA55]" if mid == chosen_model else " "
+        # Don't pre-select any model for first-time users
+        marker = " "
         table.add_row(str(i), mid, desc, tier, marker)
 
     console.print(
@@ -746,11 +779,9 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
     )
 
     if not model and models:
-        console.print(f"  [dim]Default:[/dim] [bold #CC3333]{chosen_model}[/bold #CC3333]  [dim](press Enter to keep)[/dim]")
         model_choice = click.prompt(
             "  Enter number or model ID",
-            default="",
-            show_default=False,
+            type=str,
         ).strip()
         if model_choice:
             # If it's a number, pick from the list
@@ -758,6 +789,10 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
                 chosen_model = models[int(model_choice) - 1][0]
             else:
                 chosen_model = model_choice
+        else:
+            # If empty, require selection
+            console.print("  [bold red]Model selection is required.[/bold red]")
+            return
 
     _success(f"Model: [bold]{chosen_model}[/bold]")
     console.print()
