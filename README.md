@@ -121,7 +121,7 @@ CVC ships with a **full agentic coding assistant** directly in your terminal —
 
 <br>
 
-### 🔧 15 Built-in Tools
+### 🔧 17 Built-in Tools
 
 The agent has access to powerful tools that let it work directly on your codebase:
 
@@ -139,10 +139,12 @@ The agent has access to powerful tools that let it work directly on your codebas
 <tr><td align="center">📖</td><td><code>read_file</code></td><td>Read files with optional line ranges for large files</td></tr>
 <tr><td align="center">✏️</td><td><code>write_file</code></td><td>Create or overwrite files, auto-creates directories</td></tr>
 <tr><td align="center">🔧</td><td><code>edit_file</code></td><td>Precise find-and-replace edits with uniqueness validation</td></tr>
+<tr><td align="center">🩹</td><td><code>patch_file</code></td><td>Apply unified diff patches (more robust than edit_file)</td></tr>
 <tr><td align="center">🖥️</td><td><code>bash</code></td><td>Run shell commands (PowerShell on Windows, bash on Unix)</td></tr>
 <tr><td align="center">🔍</td><td><code>glob</code></td><td>Find files by pattern (<code>**/*.py</code>, <code>src/**/*.ts</code>)</td></tr>
 <tr><td align="center">📝</td><td><code>grep</code></td><td>Search file contents with regex + include filters</td></tr>
 <tr><td align="center">📁</td><td><code>list_dir</code></td><td>List directory contents to explore project structure</td></tr>
+<tr><td align="center">🌐</td><td><code>web_search</code></td><td>Search the web for docs, APIs, and error solutions</td></tr>
 <tr><td align="center">📊</td><td><code>cvc_status</code></td><td>Show current branch, HEAD, and context state</td></tr>
 <tr><td align="center">📜</td><td><code>cvc_log</code></td><td>View commit history — snapshots of the conversation</td></tr>
 <tr><td align="center">💾</td><td><code>cvc_commit</code></td><td>Save a checkpoint of the current conversation state</td></tr>
@@ -175,10 +177,16 @@ While chatting with the agent, use these slash commands for quick actions:
 <tr><td><code>/help</code></td><td>Show all available slash commands</td></tr>
 <tr><td><code>/status</code></td><td>View branch, HEAD, context size, provider & model</td></tr>
 <tr><td><code>/log</code></td><td>Show last 20 conversation checkpoints</td></tr>
-<tr><td><code>/commit &lt;message&gt;</code></td><td>Save a manual checkpoint of the conversation</td></tr>
+<tr><td><code>/commit &lt;msg&gt;</code></td><td>Save a manual checkpoint of the conversation</td></tr>
 <tr><td><code>/branch &lt;name&gt;</code></td><td>Create and switch to a new conversation branch</td></tr>
 <tr><td><code>/restore &lt;hash&gt;</code></td><td>Time-travel back to a specific checkpoint</td></tr>
-<tr><td><code>/search &lt;query&gt;</code></td><td>Search all commits for a topic (e.g., <code>/search auth login</code>)</td></tr>
+<tr><td><code>/search &lt;query&gt;</code></td><td>Search all commits for a topic</td></tr>
+<tr><td><code>/undo</code></td><td>Undo the last file modification (edit/write/patch)</td></tr>
+<tr><td><code>/web &lt;query&gt;</code></td><td>Search the web for docs or solutions</td></tr>
+<tr><td><code>/image &lt;path&gt;</code></td><td>Analyze an image file (for UI bugs/mocks)</td></tr>
+<tr><td><code>/paste</code></td><td>Analyze an image from clipboard (screenshots)</td></tr>
+<tr><td><code>/git &lt;cmd&gt;</code></td><td>Run git commands with context awareness</td></tr>
+<tr><td><code>/cost</code></td><td>Show session token usage and cost</td></tr>
 <tr><td><code>/compact</code></td><td>Compress the conversation history, keeping recent context</td></tr>
 <tr><td><code>/clear</code></td><td>Clear conversation history (CVC state preserved)</td></tr>
 <tr><td><code>/model &lt;name&gt;</code></td><td>Switch LLM model mid-conversation</td></tr>
@@ -229,6 +237,8 @@ While chatting with the agent, use these slash commands for quick actions:
 - 🌿 **Branch** conversations
 - 🔎 **Search** across all history
 - 🔀 **Merge** insights
+- 🖼️ **Image/Screenshot** support
+- 🩹 **Patch-based** editing
 - 🤖 **4 providers** supported
 - 💾 **Auto-checkpoint** every 5 turns
 - 📱 **Session persistence**
@@ -938,8 +948,8 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 <tr>
 <td><strong>Google</strong></td>
 <td><code>gemini-3-pro-preview</code></td>
-<td><code>gemini-2.5-pro</code>, <code>gemini-2.5-flash</code>, <code>gemini-2.5-flash-lite</code></td>
-<td>OpenAI-compatible endpoint</td>
+<td><code>gemini-3-flash-preview</code>, <code>gemini-2.5-pro</code>, <code>gemini-2.5-flash</code></td>
+<td>Multimodal agent with native thought reasoning</td>
 </tr>
 <tr>
 <td><strong>Ollama</strong></td>
