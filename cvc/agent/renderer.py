@@ -131,9 +131,12 @@ def print_help() -> None:
         ("/branch <name>", "Create and switch to a new branch"),
         ("/restore <hash>", "Time-travel to a previous commit"),
         ("/search <query>", "Search commit history for context"),
+        ("/model", "Switch model interactively (or /model <name>)"),
+        ("/provider", "Switch LLM provider interactively"),
+        ("/serve", "Start the CVC proxy in a new terminal"),
+        ("/init", "Initialize CVC in the current workspace"),
         ("/compact", "Summarize and compact the conversation"),
         ("/clear", "Clear the conversation (keeps CVC state)"),
-        ("/model", "Show or change the current model"),
         ("/exit, /quit", "Exit the agent"),
     ]
     for cmd, desc in cmds:

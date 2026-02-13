@@ -47,7 +47,7 @@ from cvc.agent.renderer import (
     THEME,
 )
 from cvc.agent.system_prompt import build_system_prompt
-from cvc.agent.tools import AGENT_TOOLS
+from cvc.agent.tools import AGENT_TOOLS, MODEL_CATALOG_AGENT
 from cvc.core.database import ContextDatabase
 from cvc.core.models import (
     CVCCommitRequest,
@@ -395,12 +395,241 @@ class AgentSession:
                 self.llm.model = arg
                 render_success(f"Model changed to: {arg}")
             else:
-                render_info(f"Current model: {self.config.provider} / {self.config.model}")
+                self._interactive_model_switch()
+
+        elif cmd == "/provider":
+            self._interactive_provider_switch()
+
+        elif cmd == "/init":
+            self._run_cvc_init()
+
+        elif cmd == "/serve":
+            self._start_proxy_background()
 
         else:
             render_error(f"Unknown command: {cmd}. Type /help for available commands.")
 
         return True
+
+    # ── Interactive helpers ───────────────────────────────────────────────
+
+    def _interactive_model_switch(self) -> None:
+        """Show current model and let user pick a new one interactively."""
+        from rich.table import Table
+        from rich import box
+
+        provider = self.config.provider
+        current = self.config.model
+        catalog = MODEL_CATALOG_AGENT.get(provider, [])
+
+        console.print()
+        render_info(f"Current model: [bold]{provider}[/bold] / [bold]{current}[/bold]")
+        console.print()
+
+        if not catalog:
+            console.print(f"  [{THEME['text_dim']}]No model catalog for {provider}. "
+                          f"Type [bold]/model <name>[/bold] to set manually.[/{THEME['text_dim']}]")
+            return
+
+        table = Table(
+            box=box.ROUNDED,
+            border_style=THEME["primary_dim"],
+            show_header=True,
+            header_style=f"bold {THEME['primary_bright']}",
+        )
+        table.add_column("#", style="bold", width=3)
+        table.add_column("Model", style=THEME["accent"])
+        table.add_column("Description", style=THEME["text"])
+        table.add_column("Tier", style=THEME["text_dim"], justify="right")
+        table.add_column("", width=3)
+
+        for i, (mid, desc, tier) in enumerate(catalog, 1):
+            marker = f"[{THEME['success']}]●[/{THEME['success']}]" if mid == current else " "
+            table.add_row(str(i), mid, desc, tier, marker)
+
+        console.print(table)
+        console.print()
+
+        try:
+            choice = console.input(
+                f"  [{THEME['primary_dim']}]Pick a model (number or name, Enter to keep current):[/{THEME['primary_dim']}] "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if not choice:
+            render_info("Keeping current model.")
+            return
+
+        # Resolve the choice
+        if choice.isdigit() and 1 <= int(choice) <= len(catalog):
+            new_model = catalog[int(choice) - 1][0]
+        else:
+            new_model = choice
+
+        self.config.model = new_model
+        self.llm.model = new_model
+
+        # Also save to global config so it persists
+        try:
+            from cvc.core.models import GlobalConfig
+            gc = GlobalConfig.load()
+            gc.model = new_model
+            gc.save()
+        except Exception:
+            pass  # Non-critical
+
+        render_success(f"Model switched to [bold]{new_model}[/bold]")
+
+    def _interactive_provider_switch(self) -> None:
+        """Let the user switch provider + model interactively."""
+        providers = [
+            ("anthropic", "Anthropic", "Claude Opus, Sonnet, Haiku"),
+            ("openai", "OpenAI", "GPT-5.2, Codex, GPT-4.1"),
+            ("google", "Google", "Gemini 2.5 Flash/Pro, Gemini 3"),
+            ("ollama", "Ollama", "Local models — no API key"),
+        ]
+
+        console.print()
+        render_info(f"Current provider: [bold]{self.config.provider}[/bold]")
+        console.print()
+
+        for i, (key, name, desc) in enumerate(providers, 1):
+            marker = f"[{THEME['success']}]●[/{THEME['success']}]" if key == self.config.provider else " "
+            console.print(
+                f"  {marker} [{THEME['accent']}]{i}[/{THEME['accent']}]  "
+                f"[bold]{name}[/bold]  [{THEME['text_dim']}]— {desc}[/{THEME['text_dim']}]"
+            )
+        console.print()
+
+        try:
+            choice = console.input(
+                f"  [{THEME['primary_dim']}]Pick a provider (number, Enter to keep):[/{THEME['primary_dim']}] "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if not choice:
+            render_info("Keeping current provider.")
+            return
+
+        if choice.isdigit() and 1 <= int(choice) <= len(providers):
+            new_provider = providers[int(choice) - 1][0]
+        else:
+            new_provider = choice.lower()
+
+        if new_provider not in MODEL_CATALOG_AGENT:
+            render_error(f"Unknown provider: {new_provider}")
+            return
+
+        # Check for API key
+        from cvc.core.models import GlobalConfig
+        gc = GlobalConfig.load()
+        key = gc.api_keys.get(new_provider, "")
+
+        env_map = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "ollama": "",
+        }
+        env_key = env_map.get(new_provider, "")
+        if env_key:
+            key = key or os.getenv(env_key, "")
+
+        if not key and new_provider != "ollama":
+            render_error(
+                f"No API key for {new_provider}. "
+                f"Run [bold]cvc setup[/bold] to configure it first."
+            )
+            return
+
+        # Switch provider — need new LLM client
+        self.config.provider = new_provider
+        self.llm.provider = new_provider
+        self.llm.api_key = key
+
+        # Update API URL
+        base_url_map = {
+            "anthropic": "https://api.anthropic.com",
+            "openai": "https://api.openai.com",
+            "google": "https://generativelanguage.googleapis.com",
+            "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        }
+        self.llm._api_url = base_url_map.get(new_provider, "")
+
+        render_success(f"Provider switched to [bold]{new_provider}[/bold]")
+
+        # Now pick a model for the new provider
+        self._interactive_model_switch()
+
+        # Save
+        try:
+            gc.provider = new_provider
+            gc.model = self.config.model
+            gc.save()
+        except Exception:
+            pass
+
+    def _run_cvc_init(self) -> None:
+        """Initialize CVC in the current workspace."""
+        cvc_dir = self.workspace / ".cvc"
+        if cvc_dir.exists():
+            render_info(f"CVC already initialized at [bold]{cvc_dir}[/bold]")
+            return
+        try:
+            config = CVCConfig.for_project(
+                project_root=self.workspace,
+                provider=self.config.provider,
+                model=self.config.model,
+            )
+            config.ensure_dirs()
+            from cvc.core.database import ContextDatabase as DB
+            DB(config)
+            render_success(f"CVC initialized at [bold]{cvc_dir}[/bold]")
+        except Exception as exc:
+            render_error(f"Failed to initialize CVC: {exc}")
+
+    def _start_proxy_background(self) -> None:
+        """Start the CVC proxy server in a background process."""
+        import subprocess as _sp
+        import socket
+
+        # Check if proxy is already running
+        if self._is_proxy_running():
+            render_info("CVC Proxy is already running on [bold]http://127.0.0.1:8000[/bold]")
+            return
+
+        try:
+            if sys.platform == "win32":
+                # On Windows, use START to open a new terminal window
+                _sp.Popen(
+                    ["cmd", "/c", "start", "CVC Proxy", "cvc", "serve"],
+                    creationflags=_sp.CREATE_NEW_CONSOLE,
+                )
+            else:
+                # On Unix, launch in background
+                _sp.Popen(
+                    ["cvc", "serve"],
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    start_new_session=True,
+                )
+            render_success("CVC Proxy starting in a new terminal window…")
+            render_info("Connect your IDE to [bold]http://127.0.0.1:8000/v1[/bold]")
+        except Exception as exc:
+            render_error(f"Failed to start proxy: {exc}")
+            render_info("Start it manually: [bold]cvc serve[/bold]")
+
+    @staticmethod
+    def _is_proxy_running(host: str = "127.0.0.1", port: int = 8000) -> bool:
+        """Check if the CVC proxy is listening."""
+        import socket
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return True
+        except (OSError, ConnectionRefusedError):
+            return False
 
 
 async def _run_agent_async(
@@ -476,6 +705,9 @@ async def _run_agent_async(
         workspace=str(workspace),
     )
 
+    # ── Smart onboarding: check CVC init & proxy status ──────────────────
+    _smart_onboarding(workspace, config)
+
     # Create session
     session = AgentSession(
         workspace=workspace,
@@ -522,6 +754,117 @@ async def _run_agent_async(
         render_goodbye()
         await llm.close()
         db.close()
+
+
+def _is_proxy_running_standalone(host: str = "127.0.0.1", port: int = 8000) -> bool:
+    """Check if the CVC proxy is listening on the given port."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except (OSError, ConnectionRefusedError):
+        return False
+
+
+def _smart_onboarding(workspace: Path, config: CVCConfig) -> None:
+    """
+    Run at agent startup to check readiness and offer to fix issues inline.
+
+    Checks:
+      1. Is CVC initialized in this workspace?
+      2. Is the proxy running? (needed for IDE integration)
+    """
+    import subprocess as _sp
+
+    cvc_dir = workspace / ".cvc"
+    hints_shown = False
+
+    # ── 1. CVC init check ────────────────────────────────────────────────
+    if not cvc_dir.exists():
+        console.print(
+            f"  [{THEME['warning']}]![/{THEME['warning']}] "
+            f"CVC is not initialized in this workspace."
+        )
+        console.print(
+            f"  [{THEME['text_dim']}]Without init, time-travel features (commit, branch, restore) "
+            f"won't persist.[/{THEME['text_dim']}]"
+        )
+
+        try:
+            answer = console.input(
+                f"  [{THEME['accent']}]Initialize CVC here now? (Y/n):[/{THEME['accent']}] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+
+        if answer in ("", "y", "yes"):
+            try:
+                config.ensure_dirs()
+                from cvc.core.database import ContextDatabase as _DB
+                _DB(config)
+                render_success(f"CVC initialized at [bold]{cvc_dir}[/bold]")
+            except Exception as exc:
+                render_error(f"Failed to initialize: {exc}")
+        else:
+            render_info(
+                "Skipped. You can run [bold]/init[/bold] anytime, or [bold]cvc init[/bold] from your shell."
+            )
+        console.print()
+        hints_shown = True
+
+    # ── 2. Proxy check ───────────────────────────────────────────────────
+    if not _is_proxy_running_standalone():
+        console.print(
+            f"  [{THEME['text_dim']}]Tip: The CVC Proxy is not running. "
+            f"Your IDE won't connect to CVC without it.[/{THEME['text_dim']}]"
+        )
+
+        try:
+            answer = console.input(
+                f"  [{THEME['accent']}]Start the proxy in a new terminal? (Y/n):[/{THEME['accent']}] "
+            ).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            answer = "n"
+
+        if answer in ("", "y", "yes"):
+            try:
+                if sys.platform == "win32":
+                    _sp.Popen(
+                        ["cmd", "/c", "start", "CVC Proxy", "cvc", "serve"],
+                        creationflags=_sp.CREATE_NEW_CONSOLE,
+                    )
+                else:
+                    _sp.Popen(
+                        ["cvc", "serve"],
+                        stdout=_sp.DEVNULL,
+                        stderr=_sp.DEVNULL,
+                        start_new_session=True,
+                    )
+                render_success("CVC Proxy starting in a new terminal…")
+                render_info("IDE endpoint: [bold]http://127.0.0.1:8000/v1[/bold]")
+            except Exception as exc:
+                render_error(f"Failed to start proxy: {exc}")
+                render_info("Start it manually: [bold]cvc serve[/bold]")
+        else:
+            render_info(
+                "Skipped. Run [bold]/serve[/bold] anytime, or [bold]cvc serve[/bold] in another terminal."
+            )
+        console.print()
+        hints_shown = True
+
+    if not hints_shown:
+        # Everything is ready — show a quick status line
+        proxy_status = (
+            f"[{THEME['success']}]●[/{THEME['success']}] Proxy running"
+            if _is_proxy_running_standalone()
+            else f"[{THEME['text_dim']}]○ Proxy off[/{THEME['text_dim']}]"
+        )
+        console.print(
+            f"  [{THEME['success']}]●[/{THEME['success']}] CVC ready  "
+            f"│  {proxy_status}  "
+            f"│  [{THEME['text_dim']}]Type [bold]/help[/bold] for commands[/{THEME['text_dim']}]"
+        )
+        console.print()
 
 
 def run_agent(

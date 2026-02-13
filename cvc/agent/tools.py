@@ -429,3 +429,36 @@ def _to_google_tools(tools: list[dict]) -> list[dict]:
             "parameters": fn["parameters"],
         })
     return [{"functionDeclarations": declarations}]
+
+
+# ---------------------------------------------------------------------------
+# Model catalog — shared between CLI setup and in-agent /model switching
+# ---------------------------------------------------------------------------
+
+MODEL_CATALOG_AGENT: dict[str, list[tuple[str, str, str]]] = {
+    "anthropic": [
+        ("claude-opus-4-6", "Most intelligent — agents & coding", "$5/$25 per MTok"),
+        ("claude-opus-4-5", "Previous flagship — excellent reasoning", "$5/$25 per MTok"),
+        ("claude-sonnet-4-5", "Best speed / intelligence balance", "$3/$15 per MTok"),
+        ("claude-haiku-4-5", "Fastest & cheapest", "$1/$5 per MTok"),
+    ],
+    "openai": [
+        ("gpt-5.2", "Best for coding & agentic tasks", "Frontier"),
+        ("gpt-5.2-codex", "Optimized for agentic coding", "Frontier"),
+        ("gpt-5-mini", "Fast & cost-efficient", "Mid-tier"),
+        ("gpt-4.1", "Smartest non-reasoning model", "Mid-tier"),
+    ],
+    "google": [
+        ("gemini-2.5-flash", "Best price-performance (GA) — recommended", "Standard"),
+        ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
+        ("gemini-3-pro-preview", "Newest multimodal & agentic (preview)", "Premium"),
+        ("gemini-3-flash-preview", "Fast Gemini 3 (preview)", "Standard"),
+        ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
+    ],
+    "ollama": [
+        ("qwen2.5-coder:7b", "Best coding model — 11M+ pulls", "~4 GB"),
+        ("qwen3-coder:30b", "Latest agentic coding model", "~18 GB"),
+        ("devstral:24b", "Mistral's best open-source coding agent", "~14 GB"),
+        ("deepseek-r1:8b", "Open reasoning model (chain-of-thought)", "~5 GB"),
+    ],
+}
