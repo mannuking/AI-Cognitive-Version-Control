@@ -5,4 +5,9 @@ A state-based middleware system for managing AI agent context using
 Merkle DAGs, delta compression, and provider-agnostic caching strategies.
 """
 
-__version__ = "1.1.5"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("tm-ai")
+except PackageNotFoundError:
+    __version__ = "0.0.0"  # fallback for editable/dev installs

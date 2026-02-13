@@ -102,7 +102,7 @@ def agent_banner(version: str, provider: str, model: str, branch: str, workspace
     # Body + bottom border via Panel with no top (custom box)
     from rich.box import Box
     _NO_TOP_BOX = Box(
-        "    \n"
+        "│  │\n"
         "│  │\n"
         "├──┤\n"
         "│  │\n"
