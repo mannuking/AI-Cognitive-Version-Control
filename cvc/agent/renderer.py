@@ -73,16 +73,54 @@ def agent_banner(version: str, provider: str, model: str, branch: str, workspace
     content.append("\n")
     content.append_text(subtitle)
 
+    # Banner box with dual top labels:
+    #   "Meena" center, version right, "Time Machine for AI Agents" bottom center
+    # We draw the top border manually for dual-position labels, then use
+    # a Panel (without title) for the body + subtitle.
+    tw = console.width or 80
+    ver = f" v{version} "
+    meena = " Meena "
+    # positions on the top border (between the ╭ and ╮ corners)
+    inner = tw - 2
+    center = inner // 2
+    m_start = max(center - len(meena) // 2, 1)
+    m_end = m_start + len(meena)
+    v_start = max(inner - len(ver), m_end + 1)
+
+    top = Text()
+    top.append("╭", style=THEME["primary"])
+    top.append("─" * m_start, style=THEME["primary"])
+    top.append(meena, style=f"bold {THEME['primary_bright']}")
+    gap = v_start - m_end
+    top.append("─" * max(gap, 1), style=THEME["primary"])
+    top.append(ver, style=f"bold {THEME['accent']}")
+    remaining = inner - v_start - len(ver)
+    top.append("─" * max(remaining, 0), style=THEME["primary"])
+    top.append("╮", style=THEME["primary"])
+    console.print(top)
+
+    # Body + bottom border via Panel with no top (custom box)
+    from rich.box import Box
+    _NO_TOP_BOX = Box(
+        "    \n"
+        "│  │\n"
+        "├──┤\n"
+        "│  │\n"
+        "├──┤\n"
+        "│  │\n"
+        "├──┤\n"
+        "╰──╯\n"
+    )
     console.print(
         Panel(
             content,
+            box=_NO_TOP_BOX,
             border_style=THEME["primary"],
             padding=(1, 4),
-            title=f"[bold {THEME['accent']}]v{version}[/bold {THEME['accent']}]",
-            title_align="right",
             subtitle=f"[{THEME['text_dim']}]Time Machine for AI Agents[/{THEME['text_dim']}]",
             subtitle_align="center",
-        )
+        ),
+        highlight=False,
     )
 
     # Config bar
