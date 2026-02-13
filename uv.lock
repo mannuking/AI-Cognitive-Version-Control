@@ -534,7 +534,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
     { name = "zstandard", specifier = ">=0.23.0" },
 ]
-provides-extras = ["vector", "anthropic", "openai", "google", "all", "dev"]
+provides-extras = ["vector", "anthropic", "openai", "google", "ollama", "all", "dev"]
 
 [[package]]
 name = "distro"
