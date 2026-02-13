@@ -268,7 +268,16 @@ def run_mcp_stdio() -> None:
     This is the simplest transport: the IDE launches 'cvc mcp' as a
     subprocess and communicates via JSON-RPC 2.0 over stdin/stdout.
     """
-    logger.info("CVC MCP Server starting (stdio transport)")
+    # Configure logging to stderr (stdout is the protocol channel)
+    _setup_stderr_logging()
+
+    # Detect interactive terminal — user ran 'cvc mcp' manually
+    if sys.stdin.isatty():
+        _print_stdio_guidance()
+
+    logger.info("CVC MCP Server ready (stdio transport) — waiting for JSON-RPC messages")
+    sys.stderr.write("CVC MCP Server ready (stdio) — awaiting IDE connection…\n")
+    sys.stderr.flush()
 
     # Read JSON-RPC messages from stdin, write responses to stdout
     for line in sys.stdin:
@@ -355,7 +364,65 @@ def _get_version() -> str:
         from cvc import __version__
         return __version__
     except ImportError:
-        return "0.3.0"
+        return "0.5.0"
+
+
+def _setup_stderr_logging() -> None:
+    """Route all CVC MCP logging to stderr so stdout stays clean for JSON-RPC."""
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s — %(message)s", datefmt="%H:%M:%S"
+    ))
+    mcp_logger = logging.getLogger("cvc.mcp_server")
+    mcp_logger.addHandler(handler)
+    mcp_logger.setLevel(logging.INFO)
+    # Prevent propagation to root logger (which might write to stdout)
+    mcp_logger.propagate = False
+
+
+def _print_stdio_guidance() -> None:
+    """
+    When the user runs 'cvc mcp' directly in a terminal (stdin is a TTY),
+    print helpful guidance to stderr explaining that stdio transport is
+    meant for IDE integration, not interactive use.
+    """
+    version = _get_version()
+    sys.stderr.write(f"""
+╭──────────────────────────────────────────────────────────╮
+│  CVC MCP Server v{version}                                │
+│  Cognitive Version Control — MCP stdio transport         │
+╰──────────────────────────────────────────────────────────╯
+
+  This server communicates via JSON-RPC over stdin/stdout.
+  It's designed to be launched BY your IDE, not run manually.
+
+  ┌─────────────────────────────────────────────────────┐
+  │  HOW TO USE:                                        │
+  │                                                     │
+  │  VS Code (settings.json or .vscode/mcp.json):       │
+  │    "mcp": {{"servers": {{"cvc": {{                     │
+  │      "command": "cvc", "args": ["mcp"]              │
+  │    }}}}}}                                              │
+  │                                                     │
+  │  Cursor / Windsurf (.cursor/mcp.json):               │
+  │    {{"mcpServers": {{"cvc": {{                          │
+  │      "command": "cvc", "args": ["mcp"]              │
+  │    }}}}}}                                              │
+  │                                                     │
+  │  Claude Code (.mcp.json):                            │
+  │    {{"mcpServers": {{"cvc": {{                          │
+  │      "command": "cvc", "args": ["mcp"]              │
+  │    }}}}}}                                              │
+  └─────────────────────────────────────────────────────┘
+
+  Or use SSE transport for HTTP-based integration:
+    cvc mcp --transport sse
+
+  The server is now listening on stdin for JSON-RPC messages.
+  Press Ctrl+C to stop.
+
+""")
+    sys.stderr.flush()
 
 
 # ---------------------------------------------------------------------------
