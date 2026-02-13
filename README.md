@@ -1,32 +1,44 @@
 <div align="center">
 
-# ⏳ Time Machine for AI Agents
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- HEADER -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
 
-### *Cognitive Version Control (CVC)*
+<img src="https://img.shields.io/badge/%E2%8F%B3-Time_Machine-8B0000?style=for-the-badge&labelColor=2C0000" alt="Time Machine" />
+
+# 🧠 Cognitive Version Control
+
+### *Git for the AI Mind*
 
 **Save. Branch. Rewind. Merge. — Your AI agent just got an undo button.**
 
----
-
-[![PyPI](https://img.shields.io/pypi/v/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/tm-ai/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Status](https://img.shields.io/badge/Status-Alpha-orange?style=for-the-badge)](https://github.com/mannuking/AI-Cognitive-Version-Control)
-[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=for-the-badge)](http://makeapullrequest.com)
-
-[![GitHub Stars](https://img.shields.io/github/stars/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/issues)
+<br>
 
 ```
 pip install tm-ai
 ```
 
-[✨ Features](#-the-problem-were-solving) • [🚀 Quick Start](#-get-started) • [📖 Documentation](#-cli) • [🤝 Contributing](#-contributing) • [💬 Community](#-contributing)
+<br>
 
----
+[![PyPI](https://img.shields.io/pypi/v/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&label=PyPI&color=8B0000)](https://pypi.org/project/tm-ai/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-CC3333.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.11+-CC3333?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Status](https://img.shields.io/badge/Status-Beta-FF4444?style=for-the-badge)](https://github.com/mannuking/AI-Cognitive-Version-Control)
+[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-55AA55?style=for-the-badge)](http://makeapullrequest.com)
+
+[![GitHub Stars](https://img.shields.io/github/stars/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/mannuking/AI-Cognitive-Version-Control?style=social)](https://github.com/mannuking/AI-Cognitive-Version-Control/issues)
+
+<br>
+
+[🤖 Agent CLI](#-cvc-agent--your-own-ai-coding-assistant) · [✨ Features](#-the-problem-were-solving) · [🚀 Quick Start](#-get-started) · [📖 CLI Reference](#-cli-reference) · [🤝 Contributing](#-contributing)
 
 </div>
+
+<br>
+
+---
 
 <br>
 
@@ -34,7 +46,7 @@ pip install tm-ai
 
 ### Your AI coding agent is brilliant — for about 20 minutes.
 
-Then it forgets what it already fixed, contradicts its own plan,  
+Then it forgets what it already fixed, contradicts its own plan,
 and loops on the same error for eternity.
 
 ***Sound familiar?***
@@ -47,9 +59,9 @@ and loops on the same error for eternity.
 
 ## 🧠 What Is This?
 
-**Time Machine for AI Agents** gives AI coding agents something they've never had: **memory management** that actually works.
+**CVC** gives AI coding agents something they've never had: **memory management** that actually works.
 
-> **Git, but for the AI's brain.**  
+> **Git, but for the AI's brain.**
 > Instead of versioning source code, CVC versions the agent's *entire context* — every thought, every decision, every conversation turn — as an immutable, cryptographic Merkle DAG.
 
 The agent can **checkpoint** its reasoning, **branch** into risky experiments, **rewind** when stuck, and **merge** only the insights that matter.
@@ -83,11 +95,179 @@ The agent can **checkpoint** its reasoning, **branch** into risky experiments, *
 
 ---
 
+## 🤖 CVC Agent — Your Own AI Coding Assistant
+
+<div align="center">
+
+### **Claude Code on steroids — with Time Machine built in.**
+
+Just type `cvc` and you're in. No setup menus, no extra commands.
+
+<br>
+
+```
+cvc
+```
+
+<br>
+
+That's it. One command. The agent launches.
+
+</div>
+
+<br>
+
+CVC ships with a **full agentic coding assistant** directly in your terminal — like Claude Code, but with the ability to **save, branch, rewind, and search** through your entire conversation history. It's not just an AI chat — it's an AI with **cognitive version control**.
+
+<br>
+
+### 🔧 15 Built-in Tools
+
+The agent has access to powerful tools that let it work directly on your codebase:
+
+<div align="center">
+
+<table>
+<thead>
+<tr>
+<th width="10%">Icon</th>
+<th width="25%">Tool</th>
+<th width="65%">What It Does</th>
+</tr>
+</thead>
+<tbody>
+<tr><td align="center">📖</td><td><code>read_file</code></td><td>Read files with optional line ranges for large files</td></tr>
+<tr><td align="center">✏️</td><td><code>write_file</code></td><td>Create or overwrite files, auto-creates directories</td></tr>
+<tr><td align="center">🔧</td><td><code>edit_file</code></td><td>Precise find-and-replace edits with uniqueness validation</td></tr>
+<tr><td align="center">🖥️</td><td><code>bash</code></td><td>Run shell commands (PowerShell on Windows, bash on Unix)</td></tr>
+<tr><td align="center">🔍</td><td><code>glob</code></td><td>Find files by pattern (<code>**/*.py</code>, <code>src/**/*.ts</code>)</td></tr>
+<tr><td align="center">📝</td><td><code>grep</code></td><td>Search file contents with regex + include filters</td></tr>
+<tr><td align="center">📁</td><td><code>list_dir</code></td><td>List directory contents to explore project structure</td></tr>
+<tr><td align="center">📊</td><td><code>cvc_status</code></td><td>Show current branch, HEAD, and context state</td></tr>
+<tr><td align="center">📜</td><td><code>cvc_log</code></td><td>View commit history — snapshots of the conversation</td></tr>
+<tr><td align="center">💾</td><td><code>cvc_commit</code></td><td>Save a checkpoint of the current conversation state</td></tr>
+<tr><td align="center">🌿</td><td><code>cvc_branch</code></td><td>Create a branch to explore alternatives safely</td></tr>
+<tr><td align="center">⏪</td><td><code>cvc_restore</code></td><td>Time-travel back to any previous conversation state</td></tr>
+<tr><td align="center">🔀</td><td><code>cvc_merge</code></td><td>Merge insights from one branch into another</td></tr>
+<tr><td align="center">🔎</td><td><code>cvc_search</code></td><td>Search commit history for specific topics or discussions</td></tr>
+<tr><td align="center">📋</td><td><code>cvc_diff</code></td><td>Compare conversation states between commits</td></tr>
+</tbody>
+</table>
+
+</div>
+
+<br>
+
+### ⌨️ Slash Commands
+
+While chatting with the agent, use these slash commands for quick actions:
+
+<div align="center">
+
+<table>
+<thead>
+<tr>
+<th width="30%">Command</th>
+<th width="70%">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr><td><code>/help</code></td><td>Show all available slash commands</td></tr>
+<tr><td><code>/status</code></td><td>View branch, HEAD, context size, provider & model</td></tr>
+<tr><td><code>/log</code></td><td>Show last 20 conversation checkpoints</td></tr>
+<tr><td><code>/commit &lt;message&gt;</code></td><td>Save a manual checkpoint of the conversation</td></tr>
+<tr><td><code>/branch &lt;name&gt;</code></td><td>Create and switch to a new conversation branch</td></tr>
+<tr><td><code>/restore &lt;hash&gt;</code></td><td>Time-travel back to a specific checkpoint</td></tr>
+<tr><td><code>/search &lt;query&gt;</code></td><td>Search all commits for a topic (e.g., <code>/search auth login</code>)</td></tr>
+<tr><td><code>/compact</code></td><td>Compress the conversation history, keeping recent context</td></tr>
+<tr><td><code>/clear</code></td><td>Clear conversation history (CVC state preserved)</td></tr>
+<tr><td><code>/model &lt;name&gt;</code></td><td>Switch LLM model mid-conversation</td></tr>
+<tr><td><code>/exit</code></td><td>Save final checkpoint and exit cleanly</td></tr>
+</tbody>
+</table>
+
+</div>
+
+<br>
+
+### 🧠 What Makes It Different
+
+<div align="center">
+
+<table>
+<thead>
+<tr>
+<th width="33%" align="center">Claude Code / Codex</th>
+<th width="34%" align="center">Aider / Cursor</th>
+<th width="33%" align="center">🔥 CVC Agent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td valign="top">
+
+- Great tools
+- No memory across sessions
+- No branching / rollback
+- Single provider only
+- Context lost on crash
+
+</td>
+<td valign="top">
+
+- Great IDE integration
+- Session history is linear
+- No context time-travel
+- Can't search past chats
+- Provider-locked
+
+</td>
+<td valign="top">
+
+- **All** of their tools, plus:
+- ⏪ **Time-travel** to any point
+- 🌿 **Branch** conversations
+- 🔎 **Search** across all history
+- 🔀 **Merge** insights
+- 🤖 **4 providers** supported
+- 💾 **Auto-checkpoint** every 5 turns
+- 📱 **Session persistence**
+
+</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+
+<br>
+
+### 🎨 Agent Options
+
+```bash
+cvc                                     # Launch agent with saved config
+cvc agent                               # Same thing — explicit subcommand
+cvc agent --provider anthropic          # Force a specific provider
+cvc agent --model claude-sonnet-4-5     # Override the model
+cvc agent --api-key sk-ant-...          # Pass API key directly
+```
+
+<br>
+
+### 🔄 Auto-Commit
+
+The agent **automatically saves checkpoints** every 5 assistant turns (`CVC_AGENT_AUTO_COMMIT=5`).
+When you exit with `/exit`, a final checkpoint is saved. You never lose context.
+
+<br>
+
+---
+
 ## 🔥 The Problem We're Solving
 
 <div align="center">
 
-### The industry keeps making context windows bigger — 4K → 32K → 128K → 1M+ tokens  
+### The industry keeps making context windows bigger — 4K → 32K → 128K → 1M+ tokens
 ### ***It's not progress.***
 
 </div>
@@ -96,7 +276,7 @@ Research shows that after **~60% context utilisation**, LLM reasoning quality **
 
 <div align="center">
 
-> **A bigger window doesn't fix context rot.**  
+> **A bigger window doesn't fix context rot.**
 > **It just gives it more room to spread.**
 
 </div>
@@ -130,25 +310,24 @@ AI agents have **zero ability to manage their own cognitive state**. They can't 
 
 ## ⚙️ How It Works
 
-CVC runs as a **local proxy** between your agent and the LLM provider.  
-The agent talks to CVC like any normal API. Behind the scenes, CVC manages everything.
+CVC operates in **two modes**: as a **standalone agent** (just type `cvc`) or as a **proxy** between your favourite AI tool and the LLM provider.
 
 <br>
 
 <div align="center">
 
 ```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '14px', 'primaryColor': '#1a1a2e', 'primaryTextColor': '#e0e0e0', 'primaryBorderColor': '#7c3aed', 'lineColor': '#7c3aed', 'secondaryColor': '#16213e', 'tertiaryColor': '#0f3460', 'edgeLabelBackground': '#1a1a2e'}}}%%
+%%{init: {'theme': 'dark', 'themeVariables': { 'fontSize': '14px', 'primaryColor': '#2C0000', 'primaryTextColor': '#E8D0D0', 'primaryBorderColor': '#8B0000', 'lineColor': '#CC3333', 'secondaryColor': '#5C1010', 'tertiaryColor': '#3D0000', 'edgeLabelBackground': '#2C0000'}}}%%
 
 flowchart LR
     subgraph LOCAL["🖥️  YOUR MACHINE"]
         direction TB
 
-        subgraph AGENT["  Agent  "]
-            A["🤖 Cursor / VS Code / Custom"]
+        subgraph AGENT_MODE["  CVC Agent (cvc)  "]
+            AG["🤖 Terminal Agent\n15 tools · 4 providers"]
         end
 
-        subgraph PROXY["  CVC Proxy · localhost:8000  "]
+        subgraph PROXY_MODE["  CVC Proxy · localhost:8000  "]
             direction TB
             R["⚡ LangGraph Router"]
             R -->|CVC ops| E["🧠 Cognitive Engine"]
@@ -157,12 +336,14 @@ flowchart LR
 
         subgraph STORAGE["  .cvc/ directory  "]
             direction LR
-            S1["🗄️ SQLite\nCommit Graph\n& Metadata"]
-            S2["📦 CAS Blobs\nZstandard\nCompressed"]
-            S3["🔍 Chroma\nSemantic\nVectors"]
+            S1["🗄️ SQLite\nCommit Graph"]
+            S2["📦 CAS Blobs\nZstandard"]
+            S3["🔍 Chroma\nVectors"]
         end
 
-        A -- "HTTP request" --> R
+        AG -- "direct API" --> CLOUD
+        AG --> E
+        R -- "HTTP" --> CLOUD
         E --> S1 & S2 & S3
     end
 
@@ -174,26 +355,22 @@ flowchart LR
         C4["Ollama 🏠"]
     end
 
-    FWD -- "HTTPS" --> CLOUD
-    CLOUD -- "response" --> R
-    R -- "response" --> A
-
-    style LOCAL fill:#0d1117,stroke:#7c3aed,stroke-width:2px,color:#e0e0e0
-    style AGENT fill:#1a1a2e,stroke:#58a6ff,stroke-width:1px,color:#e0e0e0
-    style PROXY fill:#161b22,stroke:#7c3aed,stroke-width:2px,color:#e0e0e0
-    style STORAGE fill:#161b22,stroke:#f0883e,stroke-width:1px,color:#e0e0e0
-    style CLOUD fill:#0d1117,stroke:#58a6ff,stroke-width:2px,color:#e0e0e0
-    style A fill:#1f6feb,stroke:#58a6ff,color:#ffffff
-    style R fill:#7c3aed,stroke:#a78bfa,color:#ffffff
-    style E fill:#238636,stroke:#3fb950,color:#ffffff
-    style FWD fill:#1f6feb,stroke:#58a6ff,color:#ffffff
-    style S1 fill:#21262d,stroke:#f0883e,color:#e0e0e0
-    style S2 fill:#21262d,stroke:#f0883e,color:#e0e0e0
-    style S3 fill:#21262d,stroke:#f0883e,color:#e0e0e0
-    style C1 fill:#da7756,stroke:#f0883e,color:#ffffff
-    style C2 fill:#1f6feb,stroke:#58a6ff,color:#ffffff
-    style C3 fill:#238636,stroke:#3fb950,color:#ffffff
-    style C4 fill:#6e7681,stroke:#8b949e,color:#ffffff
+    style LOCAL fill:#1a0505,stroke:#8B0000,stroke-width:2px,color:#E8D0D0
+    style AGENT_MODE fill:#2C0000,stroke:#CC3333,stroke-width:2px,color:#E8D0D0
+    style PROXY_MODE fill:#2C0000,stroke:#8B0000,stroke-width:1px,color:#E8D0D0
+    style STORAGE fill:#1a0505,stroke:#5C1010,stroke-width:1px,color:#E8D0D0
+    style CLOUD fill:#1a0505,stroke:#CC3333,stroke-width:2px,color:#E8D0D0
+    style AG fill:#8B0000,stroke:#CC3333,color:#ffffff
+    style R fill:#5C1010,stroke:#CC3333,color:#ffffff
+    style E fill:#3D5C10,stroke:#55AA55,color:#ffffff
+    style FWD fill:#5C1010,stroke:#CC3333,color:#ffffff
+    style S1 fill:#2C0000,stroke:#BB8844,color:#E8D0D0
+    style S2 fill:#2C0000,stroke:#BB8844,color:#E8D0D0
+    style S3 fill:#2C0000,stroke:#BB8844,color:#E8D0D0
+    style C1 fill:#8B0000,stroke:#CC3333,color:#ffffff
+    style C2 fill:#5C1010,stroke:#CC3333,color:#ffffff
+    style C3 fill:#3D5C10,stroke:#55AA55,color:#ffffff
+    style C4 fill:#444444,stroke:#888888,color:#ffffff
 ```
 
 </div>
@@ -233,7 +410,7 @@ flowchart LR
 
 <div align="center">
 
-✨ Everything stays in `.cvc/` inside your project  
+✨ Everything stays in `.cvc/` inside your project
 🔒 No cloud • No telemetry • Your agent's thoughts are **yours**
 
 </div>
@@ -298,46 +475,41 @@ uv sync --extra dev           # or: pip install -e ".[dev]"
 
 <br>
 
-> **Cross-platform:** Works on **Windows**, **macOS**, and **Linux**.  
-> Global config is stored in the platform-appropriate location:
-> - Windows: `%LOCALAPPDATA%\cvc\config.json`
-> - macOS: `~/Library/Application Support/cvc/config.json`
-> - Linux: `~/.config/cvc/config.json`
-
 ### ▶️ Run
 
-**Zero-config launch — the fastest way:**
+**The simplest way — just type `cvc`:**
 
 ```bash
-# Launch any AI tool through CVC — everything is automatic
+cvc
+```
+
+This launches the **CVC Agent** directly. If it's your first time, you'll be guided through setup first (pick your provider, model, and API key).
+
+**Or use specific commands:**
+
+```bash
+# Launch the agent explicitly
+cvc agent
+cvc agent --provider openai --model gpt-5.2
+
+# Launch external AI tools through CVC's proxy
 cvc launch claude          # Claude Code CLI
 cvc launch aider           # Aider
 cvc launch codex           # OpenAI Codex CLI
 cvc launch cursor          # Cursor IDE
 cvc launch code            # VS Code
 
-# Or one-command start (setup + init + serve)
+# One-command start (setup + init + serve proxy)
 cvc up
 ```
 
-`cvc launch` automatically:
-1. Runs setup (if first time)
-2. Initialises `.cvc/` (if needed)
-3. Starts the proxy in the background
-4. Sets environment variables for the tool
-5. Launches the tool — **every conversation is time-machined**
+> **Cross-platform:** Works on **Windows**, **macOS**, and **Linux**.
+> Global config is stored in the platform-appropriate location:
+> - Windows: `%LOCALAPPDATA%\cvc\config.json`
+> - macOS: `~/Library/Application Support/cvc/config.json`
+> - Linux: `~/.config/cvc/config.json`
 
-**Step-by-step (if you prefer):**
-
-```bash
-cd ~/my-project
-
-# Interactive guided setup (picks provider, saves preferences, initialises .cvc/)
-cvc setup
-
-# Start the proxy
-cvc serve
-```
+<br>
 
 ### 🔑 Set Your API Key
 
@@ -368,17 +540,13 @@ cvc serve
 </tbody>
 </table>
 
-```bash
-# Start the proxy with your chosen provider
-CVC_PROVIDER=anthropic cvc serve    # or: openai, google, ollama
+Or save your keys via `cvc setup` — they're stored securely on your machine.
 
-# (Optional) Install Git hooks for automatic sync
-cvc install-hooks
-```
+<br>
 
-### 🔌 Connect Your Agent
+### 🔌 Connect External AI Tools (Proxy Mode)
 
-CVC supports **every major AI coding tool** — whether it uses API keys or login-based authentication.
+If you prefer to use your own AI tool instead of the built-in agent, CVC runs as a **transparent proxy** that time-machines every conversation:
 
 #### API-Based Tools (Proxy Mode)
 
@@ -430,12 +598,12 @@ cvc mcp --transport sse # Start MCP server (HTTP/SSE transport)
 </tr>
 <tr>
 <td><strong>🟠 Claude Code CLI</strong></td>
-<td>API Key (pass-through)</td>
+<td>API Key</td>
 <td><code>export ANTHROPIC_BASE_URL=http://127.0.0.1:8000</code> — native <code>/v1/messages</code></td>
 </tr>
 <tr>
 <td><strong>⌨️ Codex CLI</strong></td>
-<td>API Key (pass-through)</td>
+<td>API Key</td>
 <td><code>model_provider = "cvc"</code> in <code>~/.codex/config.toml</code></td>
 </tr>
 <tr>
@@ -481,20 +649,34 @@ Run `cvc connect` for interactive, tool-specific setup instructions.
 </thead>
 <tbody>
 <tr>
+<td><code>cvc</code></td>
+<td><strong>Launch the CVC Agent</strong> — interactive AI coding assistant</td>
+</tr>
+<tr>
+<td><code>cvc agent</code></td>
+<td>Same as above (explicit subcommand)</td>
+</tr>
+<tr>
+<td><code>cvc agent --provider &lt;p&gt;</code></td>
+<td>Agent with a specific provider (<code>anthropic</code>, <code>openai</code>, <code>google</code>, <code>ollama</code>)</td>
+</tr>
+<tr>
+<td><code>cvc agent --model &lt;m&gt;</code></td>
+<td>Agent with a model override</td>
+</tr>
+<tr><td colspan="2"><strong>──── Launch External Tools ────</strong></td></tr>
+<tr>
 <td><code>cvc launch &lt;tool&gt;</code></td>
 <td><strong>Zero-config</strong> — auto-launch any AI tool through CVC</td>
 </tr>
 <tr>
 <td><code>cvc up</code></td>
-<td>One command: setup + init + serve with Time Machine</td>
+<td>One command: setup + init + serve proxy</td>
 </tr>
-<tr>
-<td><code>cvc sessions</code></td>
-<td>View Time Machine session history</td>
-</tr>
+<tr><td colspan="2"><strong>──── Setup & Configuration ────</strong></td></tr>
 <tr>
 <td><code>cvc setup</code></td>
-<td>Interactive first-time setup (choose provider &amp; model)</td>
+<td>Interactive setup wizard (choose provider & model)</td>
 </tr>
 <tr>
 <td><code>cvc init</code></td>
@@ -512,6 +694,7 @@ Run `cvc connect` for interactive, tool-specific setup instructions.
 <td><code>cvc connect</code></td>
 <td>Interactive tool connection wizard</td>
 </tr>
+<tr><td colspan="2"><strong>──── Time Machine ────</strong></td></tr>
 <tr>
 <td><code>cvc status</code></td>
 <td>Show branch, HEAD, context size</td>
@@ -536,6 +719,11 @@ Run `cvc connect` for interactive, tool-specific setup instructions.
 <td><code>cvc restore &lt;hash&gt;</code></td>
 <td>Time-travel to a previous state</td>
 </tr>
+<tr>
+<td><code>cvc sessions</code></td>
+<td>View Time Machine session history</td>
+</tr>
+<tr><td colspan="2"><strong>──── Utilities ────</strong></td></tr>
 <tr>
 <td><code>cvc install-hooks</code></td>
 <td>Install Git ↔ CVC sync hooks</td>
@@ -598,7 +786,7 @@ Run `cvc connect` for interactive, tool-specific setup instructions.
 
 <div align="center">
 
-📜 When you check out an old version of your code, CVC **automatically restores**  
+📜 When you check out an old version of your code, CVC **automatically restores**
 the agent's context to what it was when that code was written.
 
 ✨ **True cognitive time-travel.**
@@ -621,29 +809,33 @@ the agent's context to what it was when that code was written.
 
 <br>
 
-When you use `cvc launch` or `cvc up`, **Time Machine mode** is enabled by default:
+When you use `cvc` (the agent) or `cvc launch`, **Time Machine mode** is enabled by default:
 
 | Feature | Description |
 |---------|-------------|
-| **Auto-commit** | Every 3 assistant turns (configurable via `CVC_TIME_MACHINE_INTERVAL`) |
+| **Auto-commit** | Every 5 assistant turns (agent) or 3 turns (proxy), configurable |
 | **Session tracking** | Detects which tool is connected, tracks start/end, message counts |
-| **Smart messages** | Auto-commits include a summary of the recent conversation |
-| **Zero friction** | No manual steps — just `cvc launch claude` and go |
+| **Smart messages** | Auto-commits include turn number and conversation summary |
+| **Zero friction** | Just `cvc` and go — or `cvc launch claude` for external tools |
+| **Session persistence** | Context restored from CVC on next launch |
 
 ```bash
 # View session history
 cvc sessions
 
-# Customize auto-commit interval
-CVC_TIME_MACHINE_INTERVAL=5 cvc up     # Commit every 5 turns
+# Customize auto-commit interval (agent)
+CVC_AGENT_AUTO_COMMIT=3 cvc agent    # Commit every 3 turns
 
-# Disable time machine for manual control
+# Customize auto-commit interval (proxy)
+CVC_TIME_MACHINE_INTERVAL=5 cvc up   # Commit every 5 turns
+
+# Disable time machine for external tools
 cvc launch claude --no-time-machine
 ```
 
 <br>
 
-### Supported Tools
+### Supported External Tools
 
 | Tool | Launch Command | How It Connects |
 |------|---------------|-----------------|
@@ -664,7 +856,7 @@ cvc launch claude --no-time-machine
 
 <div align="center">
 
-CVC structures prompts so committed history becomes a **cacheable prefix**.  
+CVC structures prompts so committed history becomes a **cacheable prefix**.
 When you rewind to a checkpoint, the model doesn't reprocess anything it's already seen.
 
 </div>
@@ -702,7 +894,7 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 
 <div align="center">
 
-🔥 Works today with **Anthropic**, **OpenAI**, **Google Gemini**, and **Ollama**  
+🔥 Works today with **Anthropic**, **OpenAI**, **Google Gemini**, and **Ollama**
 💡 Prompt caching optimised per provider
 
 </div>
@@ -807,6 +999,16 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 <td>Model name (auto-detected per provider)</td>
 </tr>
 <tr>
+<td><code>CVC_AGENT_AUTO_COMMIT</code></td>
+<td><code>5</code></td>
+<td>Agent auto-checkpoint interval (turns)</td>
+</tr>
+<tr>
+<td><code>CVC_TIME_MACHINE_INTERVAL</code></td>
+<td><code>3</code></td>
+<td>Proxy auto-commit interval (turns)</td>
+</tr>
+<tr>
 <td><code>ANTHROPIC_API_KEY</code></td>
 <td>—</td>
 <td>Required for <code>anthropic</code> provider</td>
@@ -838,6 +1040,51 @@ When you rewind to a checkpoint, the model doesn't reprocess anything it's alrea
 </tr>
 </tbody>
 </table>
+
+<br>
+
+---
+
+## 🏗️ Architecture
+
+<br>
+
+```
+cvc/
+├── __init__.py            # Package root, version
+├── __main__.py            # python -m cvc entry point
+├── cli.py                 # Click CLI — all commands, setup wizard, dark red theme
+├── proxy.py               # FastAPI proxy — intercepts LLM API calls
+├── launcher.py            # Zero-config auto-launch for AI tools
+├── mcp_server.py          # Model Context Protocol server
+│
+├── agent/                 # ★ Built-in AI coding agent (v0.6.0)
+│   ├── __init__.py        # Exports run_agent()
+│   ├── chat.py            # AgentSession REPL loop, slash commands, auto-commit
+│   ├── llm.py             # Unified LLM client — tool calling for all 4 providers
+│   ├── tools.py           # 15 tool definitions in OpenAI function-calling schema
+│   ├── executor.py        # Tool execution engine — file ops, shell, CVC operations
+│   ├── system_prompt.py   # Dynamic Claude Code-style system prompt builder
+│   └── renderer.py        # Rich terminal rendering with #2C0000 dark red theme
+│
+├── adapters/              # Provider-specific prompt formatting
+│   ├── base.py            # Abstract BaseAdapter
+│   ├── anthropic.py       # Anthropic adapter (prompt caching)
+│   ├── openai.py          # OpenAI adapter
+│   ├── google.py          # Google adapter
+│   └── ollama.py          # Ollama adapter
+│
+├── core/                  # Data layer
+│   ├── models.py          # Pydantic schemas, config, Merkle DAG
+│   └── database.py        # SQLite + CAS + Chroma storage
+│
+├── operations/            # CVC engine
+│   ├── engine.py          # Commit, branch, merge, restore
+│   └── state_machine.py   # LangGraph command routing
+│
+└── vcs/                   # Git bridge
+    └── bridge.py          # Shadow branches, Git notes, hooks
+```
 
 <br>
 
@@ -888,41 +1135,57 @@ See <em>how</em> an AI-generated PR was produced. Inspect for hallucination patt
 <thead>
 <tr>
 <th width="50%">Feature</th>
-<th width="50%">Description</th>
+<th width="50%">Status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><strong>✅ OpenAI Adapter</strong></td>
-<td>GPT-5.2 / GPT-5.2-Codex / GPT-5-mini</td>
+<td><strong>🤖 Built-in Agent CLI</strong></td>
+<td>✅ Shipped in v0.6.0 — 15 tools, 4 providers, slash commands</td>
 </tr>
 <tr>
-<td><strong>✅ Google Gemini Adapter</strong></td>
-<td>Gemini 3 Pro / Flash / 2.5 Flash</td>
+<td><strong>☁️ Anthropic Adapter</strong></td>
+<td>✅ Claude Opus 4.6 / 4.5 / Sonnet / Haiku</td>
 </tr>
 <tr>
-<td><strong>✅ Ollama (Local)</strong></td>
-<td>Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 / Devstral</td>
+<td><strong>☁️ OpenAI Adapter</strong></td>
+<td>✅ GPT-5.2 / GPT-5.2-Codex / GPT-5-mini</td>
+</tr>
+<tr>
+<td><strong>☁️ Google Gemini Adapter</strong></td>
+<td>✅ Gemini 3 Pro / Flash / 2.5 Flash</td>
+</tr>
+<tr>
+<td><strong>🏠 Ollama (Local)</strong></td>
+<td>✅ Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 / Devstral</td>
+</tr>
+<tr>
+<td><strong>🔌 MCP Server</strong></td>
+<td>✅ Native Model Context Protocol (stdio + SSE)</td>
+</tr>
+<tr>
+<td><strong>🚀 Zero-config Launch</strong></td>
+<td>✅ <code>cvc launch claude</code> / <code>aider</code> / <code>codex</code> / <code>cursor</code> / etc.</td>
+</tr>
+<tr>
+<td><strong>🔗 Git Bridge</strong></td>
+<td>✅ Shadow branches, Git notes, auto-hooks</td>
 </tr>
 <tr>
 <td><strong>🎨 VS Code Extension</strong></td>
-<td>Visual commit graph and time-travel slider</td>
-</tr>
-<tr>
-<td><strong>🌐 MCP Server</strong></td>
-<td>Native Model Context Protocol integration</td>
+<td>🔜 Visual commit graph and time-travel slider</td>
 </tr>
 <tr>
 <td><strong>👥 Multi-agent support</strong></td>
-<td>Shared CVC database with conflict resolution</td>
+<td>🔜 Shared CVC database with conflict resolution</td>
 </tr>
 <tr>
 <td><strong>☁️ Cloud sync</strong></td>
-<td>S3/MinIO for team collaboration</td>
+<td>🔜 S3/MinIO for team collaboration</td>
 </tr>
 <tr>
 <td><strong>📊 Metrics dashboard</strong></td>
-<td>Cache hit rates, context utilisation, branch success rates</td>
+<td>🔜 Cache hit rates, context utilisation, branch success rates</td>
 </tr>
 </tbody>
 </table>
@@ -966,11 +1229,11 @@ Whether you're fixing a typo or building an entirely new provider adapter — co
 <td align="center">🟢 Easy–Medium</td>
 </tr>
 <tr>
-<td>🖥️ VS Code Extension</td>
+<td>🖥️ VS Code Extension (commit graph visualisation)</td>
 <td align="center">🔴 Hard</td>
 </tr>
 <tr>
-<td>🌐 MCP Server</td>
+<td>📊 Metrics & observability dashboard</td>
 <td align="center">🟡 Medium</td>
 </tr>
 <tr>
@@ -1076,3 +1339,5 @@ Made with ❤️ by developers who got tired of AI agents forgetting what they j
   <a href="https://github.com/mannuking/AI-Cognitive-Version-Control/issues">💡 Feature</a> · 
   <a href="https://github.com/mannuking/AI-Cognitive-Version-Control/pulls">🔀 PR</a>
 </p>
+
+</div>
