@@ -144,18 +144,8 @@ class AgentLLM:
             async for event in self._stream_openai(messages, tools, temperature, max_tokens):
                 yield event
         elif self.provider == "google":
-            # Google streaming is complex with tool calling; fall back to blocking
-            response = await self._chat_google(messages, tools, temperature, max_tokens)
-            if response.text:
-                yield StreamEvent(type="text_delta", text=response.text)
-            for tc in response.tool_calls:
-                yield StreamEvent(type="tool_call_start", tool_call=tc)
-            yield StreamEvent(
-                type="done",
-                prompt_tokens=response.prompt_tokens,
-                completion_tokens=response.completion_tokens,
-                cache_read_tokens=response.cache_read_tokens,
-            )
+            async for event in self._stream_google(messages, tools, temperature, max_tokens):
+                yield event
         elif self.provider == "ollama":
             async for event in self._stream_ollama(messages, tools, temperature, max_tokens):
                 yield event
@@ -356,13 +346,14 @@ class AgentLLM:
 
     # ── Google Gemini ────────────────────────────────────────────────────
 
-    async def _chat_google(
+    def _build_gemini_body(
         self,
         messages: list[dict],
         tools: list[dict],
         temperature: float,
         max_tokens: int,
-    ) -> LLMResponse:
+    ) -> dict[str, Any]:
+        """Build the Gemini request body from messages and tools."""
         # Gemini 3 models require temperature=1.0 to avoid looping/degraded output
         if "gemini-3" in self.model:
             temperature = 1.0
@@ -412,7 +403,36 @@ class AgentLLM:
                     if m.get("content"):
                         parts.insert(0, {"text": m["content"]})
             else:
-                parts.append({"text": m.get("content", "")})
+                content = m.get("content", "")
+                # Handle multimodal content (list of parts with images)
+                if isinstance(content, list):
+                    for item in content:
+                        item_type = item.get("type", "")
+                        if item_type == "text":
+                            parts.append({"text": item.get("text", "")})
+                        elif item_type == "image":
+                            source = item.get("source", {})
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": source.get("media_type", "image/png"),
+                                    "data": source.get("data", ""),
+                                }
+                            })
+                        elif item_type == "image_url":
+                            # OpenAI-style data URL
+                            url = item.get("image_url", {}).get("url", "")
+                            if url.startswith("data:"):
+                                # Parse data:mime;base64,DATA
+                                header, data = url.split(",", 1)
+                                mime = header.split(":")[1].split(";")[0]
+                                parts.append({
+                                    "inlineData": {
+                                        "mimeType": mime,
+                                        "data": data,
+                                    }
+                                })
+                else:
+                    parts.append({"text": content})
 
             gemini_contents.append({"role": role, "parts": parts})
 
@@ -446,6 +466,17 @@ class AgentLLM:
 
         if gemini_tools:
             body["tools"] = gemini_tools
+
+        return body
+
+    async def _chat_google(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> LLMResponse:
+        body = self._build_gemini_body(messages, tools, temperature, max_tokens)
 
         url = f"/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         resp = await self._client.post(url, json=body)
@@ -502,6 +533,89 @@ class AgentLLM:
             prompt_tokens=usage.get("promptTokenCount", 0),
             completion_tokens=usage.get("candidatesTokenCount", 0),
             _provider_meta={"gemini_parts": raw_response_parts},
+        )
+
+    async def _stream_google(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+    ) -> AsyncIterator[StreamEvent]:
+        """Stream from Google Gemini API using SSE (streamGenerateContent)."""
+        body = self._build_gemini_body(messages, tools, temperature, max_tokens)
+
+        url = f"/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"
+
+        tool_calls: list[ToolCall] = []
+        prompt_tokens = 0
+        completion_tokens = 0
+
+        try:
+            async with self._client.stream("POST", url, json=body) as resp:
+                if resp.status_code == 404:
+                    raise RuntimeError(
+                        f"Model '{self.model}' not found (404). "
+                        f"Valid Google models include: gemini-2.5-flash, gemini-2.5-pro, "
+                        f"gemini-3-pro-preview, gemini-2.5-flash-lite. "
+                        f"Run 'cvc setup' to reconfigure or use --model to override."
+                    )
+                if resp.status_code == 400:
+                    # Read the body for error details
+                    body_bytes = b""
+                    async for chunk in resp.aiter_bytes():
+                        body_bytes += chunk
+                    error_body = body_bytes.decode("utf-8", errors="replace")
+                    logger.error("Gemini 400 Bad Request: %s", error_body[:1000])
+                    raise RuntimeError(
+                        f"Gemini returned 400 Bad Request for model '{self.model}'.\n"
+                        f"Response: {error_body[:500]}\n\n"
+                        f"If using a Gemini 3 model, ensure thought signatures are "
+                        f"being preserved. Try 'gemini-2.5-flash' as an alternative."
+                    )
+                resp.raise_for_status()
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Extract candidates
+                    candidates = chunk.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        for i, part in enumerate(parts):
+                            if "text" in part:
+                                yield StreamEvent(type="text_delta", text=part["text"])
+                            elif "functionCall" in part:
+                                fc = part["functionCall"]
+                                tc = ToolCall(
+                                    id=f"call_{len(tool_calls)}",
+                                    name=fc.get("name", ""),
+                                    arguments=fc.get("args", {}),
+                                )
+                                tool_calls.append(tc)
+                                yield StreamEvent(type="tool_call_start", tool_call=tc)
+
+                    # Extract usage metadata
+                    usage = chunk.get("usageMetadata", {})
+                    if usage:
+                        prompt_tokens = usage.get("promptTokenCount", prompt_tokens)
+                        completion_tokens = usage.get("candidatesTokenCount", completion_tokens)
+
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"Gemini streaming error: {e}") from e
+
+        yield StreamEvent(
+            type="done",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
 
     @staticmethod

@@ -93,6 +93,163 @@ MAX_TOOL_ITERATIONS = 25  # Safety limit for tool loops
 MAX_RETRY_ATTEMPTS = 2    # Retry failed tool calls
 
 
+def _grab_clipboard_images() -> list[tuple[str, str]]:
+    """
+    Grab image(s) from the system clipboard.
+
+    Returns a list of (base64_data, mime_type) tuples.
+    Uses Pillow (PIL) if available, falls back to native Windows API via ctypes.
+    Returns an empty list if no image is in the clipboard.
+    """
+    images: list[tuple[str, str]] = []
+
+    # Try Pillow first (cross-platform)
+    try:
+        from PIL import ImageGrab
+        import io
+
+        img = ImageGrab.grabclipboard()
+        if img is not None:
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            images.append((b64, "image/png"))
+            return images
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    # Fallback: Windows native clipboard via ctypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            CF_DIB = 8
+            GHND = 0x0042
+
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            if not user32.OpenClipboard(0):
+                return images
+
+            try:
+                if not user32.IsClipboardFormatAvailable(CF_DIB):
+                    return images
+
+                h_data = user32.GetClipboardData(CF_DIB)
+                if not h_data:
+                    return images
+
+                kernel32.GlobalLock.restype = ctypes.c_void_p
+                ptr = kernel32.GlobalLock(h_data)
+                if not ptr:
+                    return images
+
+                try:
+                    size = kernel32.GlobalSize(h_data)
+                    dib_data = ctypes.string_at(ptr, size)
+
+                    # Convert DIB to BMP by prepending BMP file header
+                    # BMP header: 'BM' + file_size(4) + reserved(4) + offset(4) = 14 bytes
+                    import struct
+                    bmp_file_size = 14 + len(dib_data)
+                    # offset to pixel data: 14 (file header) + BITMAPINFOHEADER size
+                    bih_size = struct.unpack_from("<I", dib_data, 0)[0]
+                    # Simple approach: bits_per_pixel at offset 14 in DIB
+                    bits_pp = struct.unpack_from("<H", dib_data, 14)[0] if bih_size >= 16 else 24
+                    # Color table size
+                    if bits_pp <= 8:
+                        clr_used = struct.unpack_from("<I", dib_data, 32)[0] if bih_size >= 36 else 0
+                        color_table = (clr_used or (1 << bits_pp)) * 4
+                    else:
+                        color_table = 0
+                    offset = 14 + bih_size + color_table
+
+                    bmp_header = struct.pack("<2sIHHI", b"BM", bmp_file_size, 0, 0, offset)
+                    bmp_data = bmp_header + dib_data
+
+                    # Convert BMP to PNG via PIL if available, else use raw BMP
+                    try:
+                        from PIL import Image
+                        import io
+                        img = Image.open(io.BytesIO(bmp_data))
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        images.append((b64, "image/png"))
+                    except ImportError:
+                        # Send as BMP
+                        b64 = base64.b64encode(bmp_data).decode("utf-8")
+                        images.append((b64, "image/bmp"))
+
+                finally:
+                    kernel32.GlobalUnlock(h_data)
+            finally:
+                user32.CloseClipboard()
+
+        except Exception as e:
+            logger.debug("Clipboard image grab failed: %s", e)
+
+    return images
+
+
+def _build_image_message(
+    messages: list[dict[str, Any]],
+    provider: str,
+    b64_data: str,
+    mime_type: str,
+    text: str,
+) -> None:
+    """Append a multimodal user message with an image to the conversation."""
+    if provider == "anthropic":
+        messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": b64_data,
+                    },
+                },
+                {"type": "text", "text": text},
+            ],
+        })
+    elif provider == "openai":
+        messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{b64_data}",
+                    },
+                },
+                {"type": "text", "text": text},
+            ],
+        })
+    else:
+        # Google and others use the Anthropic-style format
+        messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime_type,
+                        "data": b64_data,
+                    },
+                },
+                {"type": "text", "text": text},
+            ],
+        })
+
+
 class AgentSession:
     """
     Manages a single interactive coding session.
@@ -208,6 +365,23 @@ class AgentSession:
         # Push to CVC context
         self.engine.push_message(ContextMessage(role="user", content=user_input))
 
+        await self._agentic_loop()
+
+    async def run_turn_no_append(self, user_input: str) -> None:
+        """
+        Like run_turn but does NOT append the user message (already added,
+        e.g. with image data attached). Still increments turn count and
+        pushes a text summary to CVC context.
+        """
+        self.turn_count += 1
+
+        # Push plain text to CVC context (image data not stored)
+        self.engine.push_message(ContextMessage(role="user", content=user_input))
+
+        await self._agentic_loop()
+
+    async def _agentic_loop(self) -> None:
+        """Core agentic loop — streams LLM responses, handles tool calls."""
         # Agentic loop
         iterations = 0
         while iterations < MAX_TOOL_ITERATIONS:
@@ -614,6 +788,9 @@ class AgentSession:
             else:
                 self._handle_image(arg)
 
+        elif cmd == "/paste":
+            self._handle_paste(arg)
+
         elif cmd == "/memory":
             self._handle_memory()
 
@@ -716,68 +893,41 @@ class AgentSession:
             b64_data = base64.b64encode(image_data).decode("utf-8")
             mime_type = mimetypes.guess_type(str(path))[0] or "image/png"
 
-            # Add image message to conversation
-            if self.config.provider == "anthropic":
-                self.messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": mime_type,
-                                "data": b64_data,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": f"I've attached an image from {path.name}. Please analyze it.",
-                        },
-                    ],
-                })
-            elif self.config.provider == "openai":
-                self.messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{b64_data}",
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": f"I've attached an image from {path.name}. Please analyze it.",
-                        },
-                    ],
-                })
-            elif self.config.provider == "google":
-                self.messages.append({
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": mime_type,
-                                "data": b64_data,
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": f"I've attached an image from {path.name}. Please analyze it.",
-                        },
-                    ],
-                })
-            else:
-                render_error(f"Image support not available for provider: {self.config.provider}")
-                return
+            _build_image_message(
+                self.messages, self.config.provider,
+                b64_data, mime_type,
+                f"I've attached an image from {path.name}. Please analyze it.",
+            )
 
             render_success(f"Image loaded: {path.name} ({len(image_data) / 1024:.0f}KB)")
             render_info("The image will be analyzed with your next message, or type 'analyze this image'.")
 
         except OSError as e:
             render_error(f"Failed to read image: {e}")
+
+    def _handle_paste(self, prompt_text: str = "") -> None:
+        """Handle /paste command — grab image(s) from clipboard and add to conversation."""
+        images = _grab_clipboard_images()
+        if not images:
+            render_error("No image found in clipboard. Copy an image or screenshot first.")
+            return
+
+        for idx, (b64_data, mime_type) in enumerate(images):
+            label = f"image {idx}"
+            size_kb = len(b64_data) * 3 / 4 / 1024  # approx decoded size
+
+            _build_image_message(
+                self.messages, self.config.provider,
+                b64_data, mime_type,
+                prompt_text or f"I've pasted {label} from my clipboard. Please analyze it.",
+            )
+
+            render_success(f"Clipboard {label} loaded ({size_kb:.0f}KB, {mime_type})")
+
+        render_info(
+            f"{len(images)} image(s) pasted. "
+            "The image(s) will be analyzed with your next message, or type 'analyze this image'."
+        )
 
     def _handle_memory(self) -> None:
         """Show persistent memory from past sessions."""
@@ -1169,9 +1319,34 @@ async def _run_agent_async(
                     break
                 continue
 
-            # Run ordinary turn
+            # Auto-detect clipboard images when user mentions screenshots/images
+            _image_keywords = {
+                "screenshot", "image", "pasted", "paste", "clipboard",
+                "this picture", "this photo", "attached", "look at this",
+            }
+            _lower_input = user_input.lower()
+            _auto_pasted = False
+            if any(kw in _lower_input for kw in _image_keywords):
+                clip_images = _grab_clipboard_images()
+                if clip_images:
+                    for idx, (b64_data, mime_type) in enumerate(clip_images):
+                        label = f"image {idx}"
+                        size_kb = len(b64_data) * 3 / 4 / 1024
+                        _build_image_message(
+                            session.messages, session.config.provider,
+                            b64_data, mime_type, user_input,
+                        )
+                        render_success(f"Auto-attached clipboard {label} ({size_kb:.0f}KB)")
+                    _auto_pasted = True
+
+            # Run ordinary turn (skip if images were auto-pasted — run_turn for the text)
             try:
-                await session.run_turn(user_input)
+                if _auto_pasted:
+                    # Image messages already appended with user text;
+                    # run the agentic loop without re-adding user message
+                    await session.run_turn_no_append(user_input)
+                else:
+                    await session.run_turn(user_input)
             except KeyboardInterrupt:
                 render_info("Interrupted. Type /exit to quit.")
                 continue

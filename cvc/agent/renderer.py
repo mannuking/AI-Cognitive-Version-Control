@@ -146,6 +146,7 @@ def print_help() -> None:
         ("/git commit <msg>", "Create a Git commit"),
         ("/cost", "Show session cost summary"),
         ("/image <path>", "Analyze an image file"),
+        ("/paste", "Paste image from clipboard for analysis"),
         ("/memory", "Show persistent memory from past sessions"),
         ("/serve", "Start the CVC proxy in a new terminal"),
         ("/init", "Initialize CVC in the current workspace"),
@@ -595,7 +596,7 @@ def render_git_startup_info(status: dict) -> None:
 SLASH_COMMANDS = [
     "/help", "/status", "/log", "/commit", "/branch", "/restore",
     "/search", "/model", "/provider", "/undo", "/web", "/git",
-    "/cost", "/image", "/memory", "/serve", "/init", "/compact",
+    "/cost", "/image", "/paste", "/memory", "/serve", "/init", "/compact",
     "/clear", "/exit", "/quit",
 ]
 
