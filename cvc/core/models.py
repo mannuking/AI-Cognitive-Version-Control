@@ -71,10 +71,14 @@ class GlobalConfig(BaseModel):
     User-level defaults stored in the global config directory.
     Saved as ``config.json`` so new projects inherit the user's preferred
     provider, model, and agent identity.
+
+    API keys are stored per-provider so the user only needs to enter them
+    once via ``cvc setup``.  Environment variables always take precedence.
     """
     provider: str = "anthropic"
     model: str = "claude-opus-4-6"
     agent_id: str = "sofia"
+    api_keys: dict[str, str] = {}
 
     @classmethod
     def load(cls) -> "GlobalConfig":
@@ -384,7 +388,7 @@ class CVCConfig(BaseModel):
         provider = overrides.pop("provider", None) or os.getenv("CVC_PROVIDER", gc.provider)
         defaults = PROVIDER_DEFAULTS.get(provider, {})
 
-        # API key
+        # API key — resolution: env var → global config → empty
         api_key_env_map = {
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
@@ -393,6 +397,8 @@ class CVCConfig(BaseModel):
         }
         api_key_env = api_key_env_map.get(provider, "")
         api_key = os.getenv(api_key_env, "") if api_key_env else ""
+        if not api_key:
+            api_key = gc.api_keys.get(provider, "")
 
         # Upstream URL
         upstream_url_map = {

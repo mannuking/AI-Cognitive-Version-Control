@@ -190,9 +190,31 @@ class CvcGroup(click.Group):
 @click.group(cls=CvcGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging.")
 @click.version_option(VERSION, prog_name="cvc")
-def main(verbose: bool) -> None:
+@click.pass_context
+def main(ctx: click.Context, verbose: bool) -> None:
     """CVC — Cognitive Version Control: Git for the AI Mind."""
     _setup_logging(verbose)
+
+    # First-run detection: if no subcommand given and no global config exists,
+    # nudge the user toward `cvc setup`.
+    if ctx.invoked_subcommand is None:
+        from cvc.core.models import get_global_config_dir
+
+        gc_path = get_global_config_dir() / "config.json"
+        if not gc_path.exists():
+            console.print()
+            console.print(
+                Panel(
+                    "[bold white]Welcome to CVC![/bold white]\n\n"
+                    "Looks like this is your [bold cyan]first time[/bold cyan] here.\n"
+                    "Run the setup wizard to pick your provider, model, and API key:\n\n"
+                    "  [cyan]$[/cyan] [bold]cvc setup[/bold]",
+                    border_style="yellow",
+                    title="[bold yellow]👋 First Run[/bold yellow]",
+                    padding=(1, 3),
+                )
+            )
+            console.print()
 
 
 # ---------------------------------------------------------------------------
@@ -235,23 +257,28 @@ MODEL_CATALOG = {
     help="LLM provider (interactive prompt if omitted).",
 )
 @click.option("--model", default="", help="Model override (uses provider default if empty).")
-def setup(provider: str | None, model: str) -> None:
+@click.option("--api-key", default="", help="API key (prompted interactively if omitted).")
+def setup(provider: str | None, model: str, api_key: str) -> None:
     """Interactive first-time setup — pick your provider, model, and go."""
     from cvc.adapters import PROVIDER_DEFAULTS
 
     _banner("Setup Wizard")
 
-    # --- Provider selection -----------------------------------------------
-    if not provider:
-        console.print(
-            Panel(
-                "[bold white]Choose your LLM provider:[/bold white]",
-                border_style="cyan",
-                padding=(0, 2),
-            )
+    console.print(
+        Panel(
+            "[bold white]This wizard will configure CVC in 4 quick steps.[/bold white]\n"
+            "Your settings are saved globally — works across all projects.",
+            border_style="cyan",
+            padding=(0, 2),
         )
-        console.print()
+    )
+    console.print()
 
+    # ─── Step 1: Provider Selection ──────────────────────────────────────
+    console.print("[bold cyan]  STEP 1 of 4[/bold cyan]  [bold white]Choose your LLM provider[/bold white]")
+    console.print()
+
+    if not provider:
         providers = [
             ("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "cyan"),
             ("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "green"),
@@ -270,12 +297,17 @@ def setup(provider: str | None, model: str) -> None:
             default=1,
         )
         provider = providers[choice - 1][0]
-        console.print()
+
+    _success(f"Provider: [bold]{provider}[/bold]")
+    console.print()
 
     defaults = PROVIDER_DEFAULTS[provider]
     chosen_model = model or defaults["model"]
 
-    # --- Model selection --------------------------------------------------
+    # ─── Step 2: Model Selection ─────────────────────────────────────────
+    console.print("[bold cyan]  STEP 2 of 4[/bold cyan]  [bold white]Pick a model[/bold white]")
+    console.print()
+
     models = MODEL_CATALOG.get(provider, [])
     table = Table(
         box=box.ROUNDED,
@@ -296,25 +328,32 @@ def setup(provider: str | None, model: str) -> None:
     console.print(
         Panel(table, border_style="cyan", title=f"[bold white]{provider.title()} Models[/bold white]", padding=(1, 1))
     )
-    console.print(f"  [dim]Default model:[/dim] [bold cyan]{chosen_model}[/bold cyan]")
+
+    if not model and models:
+        console.print(f"  [dim]Default:[/dim] [bold cyan]{chosen_model}[/bold cyan]  [dim](press Enter to keep)[/dim]")
+        model_choice = click.prompt(
+            "  Enter number or model ID",
+            default="",
+            show_default=False,
+        ).strip()
+        if model_choice:
+            # If it's a number, pick from the list
+            if model_choice.isdigit() and 1 <= int(model_choice) <= len(models):
+                chosen_model = models[int(model_choice) - 1][0]
+            else:
+                chosen_model = model_choice
+
+    _success(f"Model: [bold]{chosen_model}[/bold]")
     console.print()
 
-    # --- API key check ----------------------------------------------------
+    # ─── Step 3: API Key ─────────────────────────────────────────────────
+    console.print("[bold cyan]  STEP 3 of 4[/bold cyan]  [bold white]API Key[/bold white]")
+    console.print()
+
     env_key = defaults["env_key"]
-    if env_key:
-        key_val = os.environ.get(env_key, "")
-        if key_val:
-            masked = key_val[:8] + "…" + key_val[-4:]
-            _success(f"[bold]{env_key}[/bold] is set ({masked})")
-        else:
-            _warn(f"[bold]{env_key}[/bold] is not set")
-            _hint(
-                f"Set your API key before starting the proxy:\n\n"
-                f"  [cyan]export {env_key}=\"your-key-here\"[/cyan]  [dim]# Bash / macOS[/dim]\n"
-                f"  [cyan]$env:{env_key} = \"your-key-here\"[/cyan]   [dim]# PowerShell[/dim]"
-            )
-    elif provider == "ollama":
-        _success("No API key needed for Ollama")
+
+    if provider == "ollama":
+        _success("No API key needed for Ollama — it runs locally!")
         console.print()
         console.print(
             Panel(
@@ -326,47 +365,121 @@ def setup(provider: str | None, model: str) -> None:
                 padding=(1, 2),
             )
         )
+    else:
+        # Check env var first
+        env_val = os.environ.get(env_key, "") if env_key else ""
+        # Then check saved config
+        from cvc.core.models import GlobalConfig as GC_Check
+        existing_gc = GC_Check.load()
+        saved_key = existing_gc.api_keys.get(provider, "")
+
+        if api_key:
+            # Passed via --api-key flag
+            pass
+        elif env_val:
+            masked = env_val[:8] + "…" + env_val[-4:]
+            _success(f"Found in environment: [bold]{env_key}[/bold] ({masked})")
+            console.print(f"  [dim]Using environment variable — no need to enter it again.[/dim]")
+            api_key = ""  # Don't store; env takes precedence
+        elif saved_key:
+            masked = saved_key[:8] + "…" + saved_key[-4:]
+            _success(f"Found saved key ({masked})")
+            console.print(f"  [dim]Using previously saved key. Press Enter to keep it.[/dim]")
+            new_key = click.prompt(
+                "  Paste new key (or Enter to keep existing)",
+                default="",
+                hide_input=True,
+                show_default=False,
+            ).strip()
+            api_key = new_key if new_key else saved_key
+        else:
+            _warn(f"No API key found for [bold]{provider}[/bold]")
+
+            # Provider-specific instructions
+            key_urls = {
+                "anthropic": "https://console.anthropic.com/settings/keys",
+                "openai": "https://platform.openai.com/api-keys",
+                "google": "https://aistudio.google.com/apikey",
+            }
+            url = key_urls.get(provider, "")
+            console.print()
+            if url:
+                console.print(f"  [dim]Get your key →[/dim] [bold underline]{url}[/bold underline]")
+            console.print()
+
+            api_key = click.prompt(
+                "  Paste your API key",
+                hide_input=True,
+            ).strip()
+
+            if api_key:
+                _success("API key saved!")
+            else:
+                _warn("No key entered. You can set it later via env var or re-run setup.")
 
     console.print()
 
-    # --- Save global config -----------------------------------------------
-    from cvc.core.models import GlobalConfig, CVCConfig, get_global_config_dir
-    gc = GlobalConfig(provider=provider, model=chosen_model)
-    gc_path = gc.save()
-    _success(f"Global defaults saved to [dim]{gc_path}[/dim]")
+    # ─── Step 4: Save & Initialise ───────────────────────────────────────
+    console.print("[bold cyan]  STEP 4 of 4[/bold cyan]  [bold white]Saving configuration[/bold white]")
+    console.print()
 
-    # --- Initialise .cvc in current directory -----------------------------
+    from cvc.core.models import GlobalConfig, CVCConfig, get_global_config_dir
+
+    # Build api_keys dict: preserve existing keys, update current provider
+    gc_existing = GlobalConfig.load()
+    api_keys = dict(gc_existing.api_keys)  # Copy existing
+    if api_key:
+        api_keys[provider] = api_key
+
+    gc = GlobalConfig(
+        provider=provider,
+        model=chosen_model,
+        api_keys=api_keys,
+    )
+    gc_path = gc.save()
+    _success(f"Global config saved → [dim]{gc_path}[/dim]")
+
+    # Initialise .cvc in current directory
     config = CVCConfig.for_project(project_root=Path.cwd(), provider=provider, model=chosen_model)
     config.ensure_dirs()
 
     from cvc.core.database import ContextDatabase
     ContextDatabase(config)
+    _success(f"Project initialised → [dim]{config.cvc_root}[/dim]")
+
+    console.print()
+
+    # ─── Summary ─────────────────────────────────────────────────────────
+    key_display = "[green]● saved[/green]"
+    if provider == "ollama":
+        key_display = "[dim]not needed[/dim]"
+    elif not api_key and os.environ.get(env_key, ""):
+        key_display = "[green]● from env[/green]"
+    elif not api_key:
+        key_display = "[red]● missing[/red]"
 
     console.print(
         Panel(
             f"  Provider   [bold cyan]{provider}[/bold cyan]\n"
             f"  Model      [bold cyan]{chosen_model}[/bold cyan]\n"
+            f"  API Key    {key_display}\n"
             f"  Config     [dim]{gc_path}[/dim]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
             f"  Objects    [dim]{config.objects_dir}[/dim]",
             border_style="green",
-            title="[bold green]✓ CVC Initialised[/bold green]",
+            title="[bold green]✓ CVC is Ready[/bold green]",
             padding=(1, 2),
         )
     )
 
-    # --- Next steps -------------------------------------------------------
+    # ─── Next Steps ──────────────────────────────────────────────────────
     console.print()
-    if sys.platform == "win32":
-        env_cmd = f'$env:CVC_PROVIDER = "{provider}"'
-    else:
-        env_cmd = f'export CVC_PROVIDER="{provider}"'
-
     console.print(
         Panel(
-            f"  [cyan]$[/cyan] {env_cmd}\n"
-            f"  [cyan]$[/cyan] cvc serve\n"
-            f"  [cyan]$[/cyan] [dim]Then point your agent → http://127.0.0.1:8000[/dim]",
+            "  [cyan]$[/cyan] cvc serve              [dim]# Start the proxy server[/dim]\n"
+            "  [cyan]$[/cyan] [dim]Point your agent → http://127.0.0.1:8000/v1/chat/completions[/dim]\n"
+            "\n"
+            "  [dim]That's it. Your agent now has save, branch, rewind & merge.[/dim]",
             border_style="blue",
             title="[bold blue]Next Steps[/bold blue]",
             padding=(1, 2),
@@ -804,8 +917,8 @@ def doctor() -> None:
     # Global config
     gc_dir = get_global_config_dir()
     gc_exists = (gc_dir / "config.json").exists()
+    gc = GlobalConfig.load()  # Returns defaults if file missing
     if gc_exists:
-        gc = GlobalConfig.load()
         checks.append(("Global config", True, f"{gc_dir}  (provider={gc.provider})"))
     else:
         checks.append(("Global config", False, f"Not found — run: cvc setup"))
@@ -825,12 +938,18 @@ def doctor() -> None:
     except Exception:
         checks.append(("Git repository", False, "Not a Git repo (VCS bridge won't work)"))
 
-    # Provider API keys
+    # Provider API keys (check env + stored)
     for prov, defaults in PROVIDER_DEFAULTS.items():
         env_key_name = defaults["env_key"]
         if env_key_name:
-            has_key = bool(os.environ.get(env_key_name))
-            checks.append((f"{prov.title()} key", has_key, f"{env_key_name} {'● set' if has_key else '○ not set'}"))
+            has_env = bool(os.environ.get(env_key_name))
+            has_stored = bool(gc.api_keys.get(prov)) if gc_exists else False
+            if has_env:
+                checks.append((f"{prov.title()} key", True, f"{env_key_name} ● env var set"))
+            elif has_stored:
+                checks.append((f"{prov.title()} key", True, f"● saved in global config"))
+            else:
+                checks.append((f"{prov.title()} key", False, f"{env_key_name} ○ not set"))
 
     # Ollama
     try:

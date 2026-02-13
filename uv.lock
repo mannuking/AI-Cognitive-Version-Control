@@ -467,76 +467,6 @@ wheels = [
 ]
 
 [[package]]
-name = "cvc"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiosqlite" },
-    { name = "click" },
-    { name = "fastapi" },
-    { name = "gitpython" },
-    { name = "httpx" },
-    { name = "langchain-core" },
-    { name = "langgraph" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "zstandard" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "anthropic" },
-    { name = "chromadb" },
-    { name = "google-genai" },
-    { name = "openai" },
-    { name = "sentence-transformers" },
-]
-anthropic = [
-    { name = "anthropic" },
-]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-google = [
-    { name = "google-genai" },
-]
-openai = [
-    { name = "openai" },
-]
-vector = [
-    { name = "chromadb" },
-    { name = "sentence-transformers" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.39.0" },
-    { name = "chromadb", marker = "extra == 'vector'", specifier = ">=0.5.0" },
-    { name = "click", specifier = ">=8.1.0" },
-    { name = "cvc", extras = ["vector", "anthropic", "openai", "google"], marker = "extra == 'all'" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "gitpython", specifier = ">=3.1.0" },
-    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "langchain-core", specifier = ">=0.3.0" },
-    { name = "langgraph", specifier = ">=0.2.0" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.50.0" },
-    { name = "pydantic", specifier = ">=2.9.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
-    { name = "rich", specifier = ">=13.0.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7.0" },
-    { name = "sentence-transformers", marker = "extra == 'vector'", specifier = ">=3.0.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
-    { name = "zstandard", specifier = ">=0.23.0" },
-]
-provides-extras = ["vector", "anthropic", "openai", "google", "ollama", "all", "dev"]
-
-[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2890,6 +2820,76 @@ sdist = { url = "https://files.pythonhosted.org/packages/b7/4d/08c89e34946fce2ae
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d5/f9a850d79b0851d1d4ef6456097579a9005b31fea68726a4ae5f2d82ddd9/threadpoolctl-3.6.0-py3-none-any.whl", hash = "sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb", size = 18638, upload-time = "2025-03-13T13:49:21.846Z" },
 ]
+
+[[package]]
+name = "tm-ai"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "click" },
+    { name = "fastapi" },
+    { name = "gitpython" },
+    { name = "httpx" },
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "zstandard" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "anthropic" },
+    { name = "chromadb" },
+    { name = "google-genai" },
+    { name = "openai" },
+    { name = "sentence-transformers" },
+]
+anthropic = [
+    { name = "anthropic" },
+]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+]
+google = [
+    { name = "google-genai" },
+]
+openai = [
+    { name = "openai" },
+]
+vector = [
+    { name = "chromadb" },
+    { name = "sentence-transformers" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.20.0" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.39.0" },
+    { name = "chromadb", marker = "extra == 'vector'", specifier = ">=0.5.0" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "gitpython", specifier = ">=3.1.0" },
+    { name = "google-genai", marker = "extra == 'google'", specifier = ">=1.0.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "langchain-core", specifier = ">=0.3.0" },
+    { name = "langgraph", specifier = ">=0.2.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.50.0" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7.0" },
+    { name = "sentence-transformers", marker = "extra == 'vector'", specifier = ">=3.0.0" },
+    { name = "tm-ai", extras = ["vector", "anthropic", "openai", "google"], marker = "extra == 'all'" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+    { name = "zstandard", specifier = ">=0.23.0" },
+]
+provides-extras = ["vector", "anthropic", "openai", "google", "ollama", "all", "dev"]
 
 [[package]]
 name = "tokenizers"
