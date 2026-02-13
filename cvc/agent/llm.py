@@ -383,6 +383,15 @@ class AgentLLM:
 
         url = f"/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         resp = await self._client.post(url, json=body)
+
+        if resp.status_code == 404:
+            raise RuntimeError(
+                f"Model '{self.model}' not found (404). "
+                f"Valid Google models include: gemini-2.5-flash, gemini-2.5-pro, "
+                f"gemini-3-pro-preview, gemini-2.5-flash-lite. "
+                f"Run 'cvc setup' to reconfigure or use --model to override."
+            )
+
         resp.raise_for_status()
         data = resp.json()
 

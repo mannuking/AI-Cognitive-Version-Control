@@ -428,4 +428,4 @@ def _to_google_tools(tools: list[dict]) -> list[dict]:
             "description": fn["description"],
             "parameters": fn["parameters"],
         })
-    return [{"function_declarations": declarations}]
+    return [{"functionDeclarations": declarations}]

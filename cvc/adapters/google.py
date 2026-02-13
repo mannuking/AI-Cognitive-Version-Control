@@ -5,7 +5,7 @@ Translates CVC's ``ChatCompletionRequest`` objects to the Gemini API
 (``generativelanguage.googleapis.com``), using Context Caching for the
 committed prefix when available.
 
-Default model: ``gemini-3-pro-preview`` — Google's most intelligent model.
+Default model: ``gemini-2.5-flash`` — Google's best price-performance model.
 """
 
 from __future__ import annotations
@@ -31,13 +31,13 @@ logger = logging.getLogger("cvc.adapters.google")
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # ---- Available Models (verified Feb 2026) --------------------------------
-# gemini-3-pro-preview  — Most powerful multimodal & agentic model (preview)
-# gemini-2.5-pro        — Advanced thinking model (GA)
-# gemini-2.5-flash      — Best price-performance (GA)
-# gemini-2.5-flash-lite — Fastest, cheapest (GA)
+# gemini-3-pro-preview   — Newest multimodal & agentic model (preview)
+# gemini-2.5-pro         — Advanced thinking model (GA)
+# gemini-2.5-flash       — Best price-performance (GA)  ← default
+# gemini-2.5-flash-lite  — Fastest, cheapest (GA)
 # --------------------------------------------------------------------------
 
-DEFAULT_MODEL = "gemini-3-pro-preview"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiAdapter(BaseAdapter):

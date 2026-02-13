@@ -460,9 +460,9 @@ MODEL_CATALOG = {
         ("gpt-4.1", "Smartest non-reasoning model", "Mid-tier"),
     ],
     "google": [
-        ("gemini-3-pro-preview", "Most powerful multimodal & agentic (preview)", "Premium"),
+        ("gemini-2.5-flash", "Best price-performance (GA) — recommended", "Standard"),
         ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
-        ("gemini-2.5-flash", "Best price-performance (GA)", "Standard"),
+        ("gemini-3-pro-preview", "Newest multimodal & agentic (preview)", "Premium"),
         ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
     ],
     "ollama": [
@@ -698,7 +698,7 @@ def setup(provider: str | None, model: str, api_key: str) -> None:
         providers = [
             (("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "#CC3333")),
             (("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "#CC6666")),
-            (("google", "Google", "Gemini 3 Pro Preview, Gemini 2.5 Flash", "#AA8844")),
+            (("google", "Google", "Gemini 2.5 Flash, Gemini 2.5 Pro", "#AA8844")),
             ("ollama", "Ollama", "Local models — no API key needed!", "magenta"),
         ]
         for i, (key, name, desc, color) in enumerate(providers, 1):

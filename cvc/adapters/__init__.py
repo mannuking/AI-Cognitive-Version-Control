@@ -7,7 +7,7 @@ based on the CVC_PROVIDER environment variable (or ``CVCConfig.provider``).
 Supported providers:
     - ``anthropic``  — Claude Opus 4.6 / Opus 4.5 / Sonnet 4.5 / Haiku 4.5
     - ``openai``     — GPT-5.2 / GPT-5.2-Codex / GPT-5-mini
-    - ``google``     — Gemini 3 Pro Preview / Gemini 2.5 Pro / Gemini 2.5 Flash
+    - ``google``     — Gemini 2.5 Flash / Gemini 2.5 Pro / Gemini 3 Pro Preview
     - ``ollama``     — Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 (local)
 """
 
@@ -27,7 +27,7 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "env_key": "OPENAI_API_KEY",
     },
     "google": {
-        "model": "gemini-3-pro-preview",
+        "model": "gemini-2.5-flash",
         "env_key": "GOOGLE_API_KEY",
     },
     "ollama": {
