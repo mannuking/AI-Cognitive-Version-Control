@@ -37,6 +37,7 @@ class LLMResponse:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cache_read_tokens: int = 0
+    _provider_meta: dict[str, Any] = field(default_factory=dict)
 
     @property
     def has_tool_calls(self) -> bool:
@@ -311,6 +312,10 @@ class AgentLLM:
         temperature: float,
         max_tokens: int,
     ) -> LLMResponse:
+        # Gemini 3 models require temperature=1.0 to avoid looping/degraded output
+        if "gemini-3" in self.model:
+            temperature = 1.0
+
         # Convert messages to Gemini format
         gemini_contents = []
         system_text = ""
@@ -332,27 +337,37 @@ class AgentLLM:
                     }
                 })
             elif m.get("tool_calls"):
-                # Function calls from assistant
-                for tc in m["tool_calls"]:
-                    fn = tc.get("function", {})
-                    args = fn.get("arguments", "{}")
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except json.JSONDecodeError:
-                            args = {}
-                    parts.append({
-                        "functionCall": {
-                            "name": fn.get("name", ""),
-                            "args": args,
-                        }
-                    })
-                if m.get("content"):
-                    parts.insert(0, {"text": m["content"]})
+                # Use raw Gemini parts if available — preserves thoughtSignature
+                # for Gemini 3 models (mandatory for function calling).
+                raw_parts = m.get("_gemini_parts")
+                if raw_parts:
+                    parts = list(raw_parts)  # use stored parts as-is
+                else:
+                    # Fallback: reconstruct from tool_calls (non-Gemini history)
+                    for tc in m["tool_calls"]:
+                        fn = tc.get("function", {})
+                        args = fn.get("arguments", "{}")
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except json.JSONDecodeError:
+                                args = {}
+                        parts.append({
+                            "functionCall": {
+                                "name": fn.get("name", ""),
+                                "args": args,
+                            }
+                        })
+                    if m.get("content"):
+                        parts.insert(0, {"text": m["content"]})
             else:
                 parts.append({"text": m.get("content", "")})
 
             gemini_contents.append({"role": role, "parts": parts})
+
+        # Merge consecutive same-role contents (e.g. multiple tool results)
+        # Gemini requires strict user/model alternation.
+        gemini_contents = self._merge_gemini_contents(gemini_contents)
 
         # Convert tools to Gemini format
         gemini_tools = []
@@ -392,6 +407,16 @@ class AgentLLM:
                 f"Run 'cvc setup' to reconfigure or use --model to override."
             )
 
+        if resp.status_code == 400:
+            error_body = resp.text
+            logger.error("Gemini 400 Bad Request: %s", error_body[:1000])
+            raise RuntimeError(
+                f"Gemini returned 400 Bad Request for model '{self.model}'.\n"
+                f"Response: {error_body[:500]}\n\n"
+                f"If using a Gemini 3 model, ensure thought signatures are "
+                f"being preserved. Try 'gemini-2.5-flash' as an alternative."
+            )
+
         resp.raise_for_status()
         data = resp.json()
 
@@ -400,11 +425,14 @@ class AgentLLM:
         if not candidates:
             return LLMResponse(text="(no response from Gemini)")
 
-        parts = candidates[0].get("content", {}).get("parts", [])
+        # Store the raw response parts — these contain thoughtSignature
+        # fields that must be passed back for Gemini 3 function calling.
+        raw_response_parts = candidates[0].get("content", {}).get("parts", [])
+
         text_parts = []
         tool_calls = []
 
-        for i, part in enumerate(parts):
+        for i, part in enumerate(raw_response_parts):
             if "text" in part:
                 text_parts.append(part["text"])
             elif "functionCall" in part:
@@ -422,7 +450,26 @@ class AgentLLM:
             finish_reason="tool_calls" if tool_calls else "stop",
             prompt_tokens=usage.get("promptTokenCount", 0),
             completion_tokens=usage.get("candidatesTokenCount", 0),
+            _provider_meta={"gemini_parts": raw_response_parts},
         )
+
+    @staticmethod
+    def _merge_gemini_contents(contents: list[dict]) -> list[dict]:
+        """Merge consecutive same-role Gemini content blocks.
+
+        Gemini requires strict user/model alternation.  Multiple tool
+        results (role=user) must be merged into a single Content with
+        multiple functionResponse parts.
+        """
+        if not contents:
+            return contents
+        merged = [contents[0]]
+        for content in contents[1:]:
+            if content["role"] == merged[-1]["role"]:
+                merged[-1]["parts"].extend(content["parts"])
+            else:
+                merged.append(content)
+        return merged
 
     # ── Ollama (OpenAI-compatible) ───────────────────────────────────────
 

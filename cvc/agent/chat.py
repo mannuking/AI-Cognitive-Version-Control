@@ -188,6 +188,13 @@ class AgentSession:
                         for tc in response.tool_calls
                     ],
                 }
+
+                # Preserve raw Gemini parts (includes thoughtSignature
+                # required by Gemini 3 for multi-turn function calling).
+                gemini_parts = response._provider_meta.get("gemini_parts")
+                if gemini_parts:
+                    assistant_msg["_gemini_parts"] = gemini_parts
+
                 self.messages.append(assistant_msg)
 
                 # Show any text the model produced before tool calls
