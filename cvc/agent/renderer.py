@@ -13,6 +13,7 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 from typing import Any
@@ -599,10 +600,11 @@ SLASH_COMMANDS = [
 ]
 
 
-def get_input_with_completion(branch: str, turn: int) -> str:
+async def get_input_with_completion(branch: str, turn: int) -> str:
     """
     Get user input with tab completion for slash commands.
     Falls back to basic input if prompt_toolkit is not available.
+    Uses prompt_async() to avoid nested asyncio.run() errors.
     """
     try:
         from prompt_toolkit import PromptSession
@@ -636,12 +638,12 @@ def get_input_with_completion(branch: str, turn: int) -> str:
             f"[{THEME['text_dim']}] (turn {turn})[/{THEME['text_dim']}]"
         )
 
-        line = session.prompt("╰─▸ ")
+        line = await session.prompt_async("╰─▸ ")
         return line.strip()
 
     except ImportError:
         # Fall back to basic Rich input
-        return print_input_prompt(branch, turn)
+        return await asyncio.to_thread(print_input_prompt, branch, turn)
     except (EOFError, KeyboardInterrupt):
         return "/exit"
 
