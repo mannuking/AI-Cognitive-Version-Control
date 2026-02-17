@@ -193,8 +193,8 @@ def print_help() -> None:
         ("/git commit <msg>", "Create a Git commit"),
         ("/cost", "Show session cost summary"),
         ("/analytics", "Show detailed session & usage analytics"),
-        ("/image <path>", "Analyze an image file"),
-        ("/paste", "Paste image from clipboard for analysis"),
+        ("/image <path> [prompt]", "Load image file (+ send prompt inline)"),
+        ("/paste [prompt]", "Paste clipboard image (+ send prompt inline)"),
         ("/memory", "Show persistent memory from past sessions"),
         ("/serve", "Start the CVC proxy in a new terminal"),
         ("/init", "Initialize CVC in the current workspace"),
@@ -717,7 +717,7 @@ def render_git_startup_info(status: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tab Completion for Slash Commands
+# Tab Completion for Slash Commands + Ctrl+V Image Paste
 # ---------------------------------------------------------------------------
 
 SLASH_COMMANDS = [
@@ -727,18 +727,39 @@ SLASH_COMMANDS = [
     "/clear", "/exit", "/quit",
 ]
 
+# Module-level list to pass pasted images from the Ctrl+V key binding
+# back to the REPL loop.  Each entry is (base64_data, mime_type).
+_pending_paste_images: list[tuple[str, str]] = []
+
+
+def get_pending_paste_images() -> list[tuple[str, str]]:
+    """Return and clear any images pasted via Ctrl+V during input."""
+    imgs = list(_pending_paste_images)
+    _pending_paste_images.clear()
+    return imgs
+
 
 async def get_input_with_completion(branch: str, turn: int) -> str:
     """
     Get user input with tab completion for slash commands.
     Falls back to basic input if prompt_toolkit is not available.
     Uses prompt_async() to avoid nested asyncio.run() errors.
+
+    Ctrl+V is intercepted: if the system clipboard contains an image,
+    the image is grabbed and a 📎 marker is inserted into the input
+    buffer. The actual image data is stored in _pending_paste_images
+    for the REPL loop to consume.  If the clipboard contains text,
+    normal paste behaviour is preserved.
     """
+    # Clear any stale images from a previous prompt
+    _pending_paste_images.clear()
+
     try:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.completion import WordCompleter
         from prompt_toolkit.formatted_text import HTML
         from prompt_toolkit.styles import Style as PTStyle
+        from prompt_toolkit.key_binding import KeyBindings
 
         completer = WordCompleter(
             SLASH_COMMANDS,
@@ -751,10 +772,77 @@ async def get_input_with_completion(branch: str, turn: int) -> str:
             "turn": "#8B7070",
         })
 
+        # ── Custom key bindings ──────────────────────────────────────
+        kb = KeyBindings()
+
+        @kb.add("c-v")
+        def _ctrl_v(event):
+            """Intercept Ctrl+V: if clipboard has an image, grab it;
+            otherwise fall through to normal text paste."""
+            # Lazy-import to avoid circular deps
+            from cvc.agent.chat import _grab_clipboard_images
+
+            images = _grab_clipboard_images()
+            if images:
+                # Store images for the REPL loop
+                _pending_paste_images.extend(images)
+
+                # Insert a visible marker into the text buffer so the
+                # user sees that an image was attached
+                buf = event.app.current_buffer
+                count = len(images)
+                marker = f" 📎[{count} image{'s' if count > 1 else ''}] "
+                buf.insert_text(marker)
+            else:
+                # No image — paste text from system clipboard
+                import sys as _sys
+                _text = ""
+                if _sys.platform == "win32":
+                    try:
+                        import ctypes
+                        CF_UNICODETEXT = 13
+                        u32 = ctypes.windll.user32
+                        k32 = ctypes.windll.kernel32
+                        if u32.OpenClipboard(0):
+                            try:
+                                h = u32.GetClipboardData(CF_UNICODETEXT)
+                                if h:
+                                    k32.GlobalLock.restype = ctypes.c_wchar_p
+                                    _text = k32.GlobalLock(h) or ""
+                                    k32.GlobalUnlock(h)
+                            finally:
+                                u32.CloseClipboard()
+                    except Exception:
+                        pass
+                else:
+                    # macOS / Linux: try pyperclip or subprocess
+                    try:
+                        import subprocess
+                        if _sys.platform == "darwin":
+                            _text = subprocess.run(
+                                ["pbpaste"], capture_output=True, text=True, timeout=2,
+                            ).stdout
+                        else:
+                            _text = subprocess.run(
+                                ["xclip", "-selection", "clipboard", "-o"],
+                                capture_output=True, text=True, timeout=2,
+                            ).stdout
+                    except Exception:
+                        pass
+
+                if _text:
+                    event.app.current_buffer.insert_text(_text)
+                else:
+                    # Final fallback: prompt_toolkit's internal clipboard
+                    event.app.current_buffer.paste_clipboard_data(
+                        event.app.clipboard.get_data(),
+                    )
+
         session = PromptSession(
             completer=completer,
             style=style,
             complete_while_typing=True,
+            key_bindings=kb,
         )
 
         # Show the CVC prompt header

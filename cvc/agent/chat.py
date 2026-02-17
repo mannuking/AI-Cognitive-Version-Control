@@ -51,6 +51,7 @@ from cvc.agent.renderer import (
     agent_banner,
     console,
     get_input_with_completion,
+    get_pending_paste_images,
     print_help,
     print_input_prompt,
     render_auto_commit,
@@ -384,6 +385,10 @@ class AgentSession:
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
         self._assistant_turns_since_commit = 0
+
+        # Clipboard image dedup — track hash of the last clipboard image
+        # we attached so we don't re-send the same screenshot on every prompt
+        self._last_clipboard_hash: str | None = None
 
         # Build auto-context
         auto_ctx = ""
@@ -1017,12 +1022,12 @@ class AgentSession:
 
         elif cmd == "/image":
             if not arg:
-                render_error("Usage: /image <file_path>")
+                render_error("Usage: /image <file_path> [prompt text]")
             else:
-                self._handle_image(arg)
+                await self._handle_image(arg)
 
         elif cmd == "/paste":
-            self._handle_paste(arg)
+            await self._handle_paste(arg)
 
         elif cmd == "/memory":
             self._handle_memory()
@@ -1121,8 +1126,18 @@ class AgentSession:
             status = git_status(self.workspace)
             render_git_status(format_git_status(status))
 
-    def _handle_image(self, path_str: str) -> None:
-        """Handle /image command — add image to conversation for analysis."""
+    async def _handle_image(self, arg_str: str) -> None:
+        """Handle /image command — load image file and optionally send with prompt.
+
+        Usage:
+            /image screenshot.png                → loads image, waits for next prompt
+            /image screenshot.png fix this bug   → loads image + sends prompt together
+        """
+        # Split: first token is the file path, rest is the prompt text
+        parts = arg_str.strip().split(maxsplit=1)
+        path_str = parts[0]
+        prompt_text = parts[1].strip() if len(parts) > 1 else ""
+
         path = Path(path_str)
         if not path.is_absolute():
             path = self.workspace / path
@@ -1138,20 +1153,33 @@ class AgentSession:
             b64_data = base64.b64encode(image_data).decode("utf-8")
             mime_type = mimetypes.guess_type(str(path))[0] or "image/png"
 
+            text = prompt_text or f"I've attached an image from {path.name}. Please analyze it."
             _build_image_message(
                 self.messages, self.config.provider,
-                b64_data, mime_type,
-                f"I've attached an image from {path.name}. Please analyze it.",
+                b64_data, mime_type, text,
             )
 
             render_success(f"Image loaded: {path.name} ({len(image_data) / 1024:.0f}KB)")
-            render_info("The image will be analyzed with your next message, or type 'analyze this image'.")
+
+            if prompt_text:
+                # Send immediately — no second prompt needed
+                await self.run_turn_no_append(prompt_text)
+            else:
+                render_info(
+                    "Image ready. Type your prompt, or just say what you need — "
+                    "the image will be sent along with it."
+                )
 
         except OSError as e:
             render_error(f"Failed to read image: {e}")
 
-    def _handle_paste(self, prompt_text: str = "") -> None:
-        """Handle /paste command — grab image(s) from clipboard and add to conversation."""
+    async def _handle_paste(self, prompt_text: str = "") -> None:
+        """Handle /paste command — grab clipboard image and optionally send with prompt.
+
+        Usage:
+            /paste                           → loads clipboard image, waits for next prompt
+            /paste analyze this screenshot   → loads image + sends prompt in one action
+        """
         images = _grab_clipboard_images()
         if not images:
             render_error("No image found in clipboard. Copy an image or screenshot first.")
@@ -1161,18 +1189,27 @@ class AgentSession:
             label = f"image {idx}"
             size_kb = len(b64_data) * 3 / 4 / 1024  # approx decoded size
 
+            text = prompt_text or f"I've pasted {label} from my clipboard. Please analyze it."
             _build_image_message(
                 self.messages, self.config.provider,
-                b64_data, mime_type,
-                prompt_text or f"I've pasted {label} from my clipboard. Please analyze it.",
+                b64_data, mime_type, text,
             )
 
-            render_success(f"Clipboard {label} loaded ({size_kb:.0f}KB, {mime_type})")
+            render_success(f"📎 Clipboard {label} attached ({size_kb:.0f}KB, {mime_type})")
 
-        render_info(
-            f"{len(images)} image(s) pasted. "
-            "The image(s) will be analyzed with your next message, or type 'analyze this image'."
-        )
+        # Update clipboard hash so auto-detect doesn't re-send the same image
+        import hashlib
+        self._last_clipboard_hash = hashlib.sha256(images[0][0].encode()).hexdigest()
+
+        if prompt_text:
+            # Send immediately — image + prompt in one action, no second prompt needed
+            render_info(f"📎 {len(images)} image(s) + prompt → sending…")
+            await self.run_turn_no_append(prompt_text)
+        else:
+            render_info(
+                f"{len(images)} image(s) loaded. "
+                "Type your prompt — the image will be sent with it automatically."
+            )
 
     def _handle_memory(self) -> None:
         """Show persistent memory from past sessions."""
@@ -1912,25 +1949,114 @@ async def _run_agent_async(
                     break
                 continue
 
-            # Auto-detect clipboard images when user mentions screenshots/images
+            # ── Ctrl+V pasted images (from prompt_toolkit keybinding) ──
+            # If the user pressed Ctrl+V during input and there was an
+            # image in the clipboard, it's now in _pending_paste_images.
+            _ctrlv_images = get_pending_paste_images()
+            if _ctrlv_images:
+                import hashlib as _hlv
+                for idx, (b64_data, mime_type) in enumerate(_ctrlv_images):
+                    label = f"image {idx}"
+                    size_kb = len(b64_data) * 3 / 4 / 1024
+                    # Strip the 📎 marker from user text for the LLM
+                    clean_input = user_input
+                    for _marker_pattern in [" 📎[1 image] ", " 📎[2 images] ", " 📎[3 images] "]:
+                        clean_input = clean_input.replace(_marker_pattern, " ").strip()
+                    _build_image_message(
+                        session.messages, session.config.provider,
+                        b64_data, mime_type,
+                        clean_input or "Please analyze this image.",
+                    )
+                    render_success(
+                        f"📎 Pasted clipboard {label} ({size_kb:.0f}KB, {mime_type})"
+                    )
+                session._last_clipboard_hash = _hlv.sha256(
+                    _ctrlv_images[0][0].encode()
+                ).hexdigest()
+                # Send immediately
+                clean_input = user_input
+                for _marker_pattern in [" 📎[1 image] ", " 📎[2 images] ", " 📎[3 images] "]:
+                    clean_input = clean_input.replace(_marker_pattern, " ").strip()
+                try:
+                    await session.run_turn_no_append(clean_input or "analyze this image")
+                except KeyboardInterrupt:
+                    render_info("Interrupted. Type /exit to quit.")
+                except Exception as exc:
+                    render_error(f"Unexpected error: {exc}")
+                    logger.error("Turn error: %s", exc, exc_info=True)
+                continue
+
+            # ── Smart clipboard image detection ─────────────────────
+            # Clipboard images are attached ONLY when the user
+            # explicitly signals intent:
+            #   1. Ctrl+V         → handled above (prompt_toolkit)
+            #   2. /paste         → slash command
+            #   3. Keyword-based  → prompt mentions "screenshot",
+            #      "paste", "clipboard", "look at this", etc.
+            #   4. File path      → prompt contains e.g. screenshot.png
+            #
+            # We intentionally do NOT auto-attach based on a new
+            # clipboard hash alone — that could leak accidental or
+            # private screenshots the user never intended to share.
+            import hashlib as _hl
+
             _image_keywords = {
                 "screenshot", "image", "pasted", "paste", "clipboard",
                 "this picture", "this photo", "attached", "look at this",
+                "see this", "check this",
             }
+            _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff"}
             _lower_input = user_input.lower()
             _auto_pasted = False
-            if any(kw in _lower_input for kw in _image_keywords):
-                clip_images = _grab_clipboard_images()
-                if clip_images:
-                    for idx, (b64_data, mime_type) in enumerate(clip_images):
-                        label = f"image {idx}"
-                        size_kb = len(b64_data) * 3 / 4 / 1024
-                        _build_image_message(
-                            session.messages, session.config.provider,
-                            b64_data, mime_type, user_input,
-                        )
-                        render_success(f"Auto-attached clipboard {label} ({size_kb:.0f}KB)")
-                    _auto_pasted = True
+
+            # Strategy A: detect inline image file paths in the prompt
+            _path_attached = False
+            for token in user_input.split():
+                _p = Path(token)
+                if _p.suffix.lower() in _IMAGE_EXTS:
+                    candidate = _p if _p.is_absolute() else (session.workspace / _p)
+                    if candidate.exists():
+                        try:
+                            _idata = candidate.read_bytes()
+                            _b64 = base64.b64encode(_idata).decode("utf-8")
+                            _mime = mimetypes.guess_type(str(candidate))[0] or "image/png"
+                            _build_image_message(
+                                session.messages, session.config.provider,
+                                _b64, _mime, user_input,
+                            )
+                            render_success(
+                                f"📎 Auto-attached {candidate.name} "
+                                f"({len(_idata) / 1024:.0f}KB)"
+                            )
+                            _path_attached = True
+                        except OSError:
+                            pass
+
+            if _path_attached:
+                _auto_pasted = True
+            else:
+                # Strategy B: clipboard image — ONLY when user explicitly
+                # mentions image-related keywords.  We do NOT auto-attach
+                # based on "new hash" alone because the user may have taken
+                # an accidental or private screenshot that they never
+                # intended to share with the LLM.
+                _has_keyword = any(kw in _lower_input for kw in _image_keywords)
+                if _has_keyword:
+                    clip_images = _grab_clipboard_images()
+                    if clip_images:
+                        _clip_hash = _hl.sha256(clip_images[0][0].encode()).hexdigest()
+                        for idx, (b64_data, mime_type) in enumerate(clip_images):
+                            label = f"image {idx}"
+                            size_kb = len(b64_data) * 3 / 4 / 1024
+                            _build_image_message(
+                                session.messages, session.config.provider,
+                                b64_data, mime_type, user_input,
+                            )
+                            render_success(
+                                f"📎 Auto-attached clipboard {label} ({size_kb:.0f}KB)"
+                            )
+                        session._last_clipboard_hash = _clip_hash
+                        _auto_pasted = True
 
             # Run ordinary turn (skip if images were auto-pasted — run_turn for the text)
             try:
