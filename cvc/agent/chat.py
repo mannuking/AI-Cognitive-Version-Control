@@ -708,31 +708,6 @@ class AgentSession:
                 else:
                     render_error(result.message)
 
-        elif cmd == "/checkout":
-            if not arg:
-                render_error("Usage: /checkout <branch_name>")
-            else:
-                try:
-                    # Get all available branches
-                    branches = self.engine.db.index.list_branches()
-                    branch_names = [b.name for b in branches]
-                    
-                    if arg not in branch_names:
-                        render_error(f"Branch '{arg}' not found. Available branches:\n  " + "\n  ".join(branch_names))
-                        return
-                    
-                    # Switch to the branch
-                    branch_ptr = self.engine.db.index.branch_pointer(arg)
-                    if branch_ptr:
-                        self.engine._active_branch = arg
-                        self.engine.db.index.set_active_branch(arg)
-                        render_success(f"Switched to branch '{arg}'")
-                        self._rebuild_system_prompt()
-                    else:
-                        render_error(f"Failed to switch to branch '{arg}'")
-                except Exception as e:
-                    render_error(f"Failed to checkout branch: {e}")
-
         elif cmd == "/restore":
             if not arg:
                 render_error("Usage: /restore <commit_hash>")
@@ -808,6 +783,9 @@ class AgentSession:
             summary = self.cost_tracker.format_summary()
             render_cost_summary(summary)
 
+        elif cmd == "/analytics":
+            self._handle_analytics_command()
+
         elif cmd == "/web":
             if not arg:
                 render_error("Usage: /web <search query>")
@@ -822,6 +800,12 @@ class AgentSession:
 
         elif cmd == "/branches":
             self._handle_branches_command()
+
+        elif cmd == "/merge":
+            if not arg:
+                render_error("Usage: /merge <source_branch>")
+            else:
+                self._handle_merge_command(arg)
 
         elif cmd == "/git":
             self._handle_git_command(arg)
@@ -1171,10 +1155,9 @@ class AgentSession:
                 return
             
             # Switch to the branch
-            branch_ptr = self.engine.db.index.branch_pointer(branch_name)
+            branch_ptr = self.engine.db.index.get_branch(branch_name)
             if branch_ptr:
                 self.engine._active_branch = branch_name
-                self.engine.db.index.set_active_branch(branch_name)
                 render_success(f"Switched to branch '{branch_name}'")
                 self._rebuild_system_prompt()
             else:
@@ -1213,6 +1196,53 @@ class AgentSession:
             console.print()
         except Exception as e:
             render_error(f"Failed to list branches: {e}")
+
+    def _handle_merge_command(self, source_branch: str) -> None:
+        """Merge source branch into current branch."""
+        try:
+            from cvc.core.models import CVCMergeRequest
+            
+            target_branch = self.engine.active_branch
+            
+            if source_branch == target_branch:
+                render_error("Cannot merge a branch into itself.")
+                return
+            
+            # Verify source branch exists
+            branches = self.engine.db.index.list_branches()
+            branch_names = [b.name for b in branches]
+            
+            if source_branch not in branch_names:
+                render_error(f"Source branch '{source_branch}' not found. Available branches:\n  " + "\n  ".join(branch_names))
+                return
+            
+            render_info(f"Merging '{source_branch}' into '{target_branch}'...")
+            
+            # Create merge request
+            request = CVCMergeRequest(
+                source_branch=source_branch,
+                target_branch=target_branch,
+            )
+            
+            # Perform the merge
+            result = self.engine.merge(request)
+            
+            if result.success:
+                render_success(f"✓ Merged '{source_branch}' into '{target_branch}'")
+                render_success(f"Merge commit: {result.commit_hash[:12]}")
+                # Rebuild system prompt with merged context
+                self._rebuild_system_prompt()
+                # Add merge notification to conversation
+                self.messages.append({
+                    "role": "system",
+                    "content": f"[CVC] Successfully merged branch '{source_branch}' into '{target_branch}' (commit {result.commit_hash[:12]}). Context has been unified.",
+                })
+            else:
+                render_error(f"Merge failed: {result.message}")
+                
+        except Exception as e:
+            render_error(f"Failed to merge branches: {e}")
+
 
     def _save_session_memory(self) -> None:
         """Save a summary of this session to persistent memory."""
@@ -1300,6 +1330,60 @@ class AgentSession:
             pass
 
         render_success(f"Model switched to [bold]{new_model}[/bold]")
+
+    def _handle_analytics_command(self) -> None:
+        """Show detailed analytics for the current session and historical usage."""
+        try:
+            from rich.table import Table
+            
+            # Current session analytics
+            session_cost = self.cost_tracker.total_cost_usd
+            input_tokens = self.cost_tracker.total_input_tokens
+            output_tokens = self.cost_tracker.total_output_tokens
+            cache_tokens = self.cost_tracker.total_cache_read_tokens
+            total_tokens = input_tokens + output_tokens + cache_tokens
+            
+            analytics = []
+            analytics.append("[bold]📊 Session Analytics[/bold]")
+            analytics.append("")
+            analytics.append(f"  Total Tokens:     {total_tokens:,}")
+            analytics.append(f"  Input Tokens:     {input_tokens:,}")
+            analytics.append(f"  Output Tokens:    {output_tokens:,}")
+            analytics.append(f"  Cache Tokens:     {cache_tokens:,}")
+            analytics.append(f"  Session Cost:     ${session_cost:.4f}")
+            analytics.append(f"  Turns:            {self.turn_count}")
+            analytics.append(f"  Messages:         {len(self.messages)}")
+            analytics.append(f"  Provider:         {self.config.provider}")
+            analytics.append(f"  Model:            {self.config.model}")
+            analytics.append(f"  Branch:           {self.engine.active_branch}")
+            analytics.append(f"  Workspace:        {self.workspace.name}")
+            analytics.append("")
+            
+            # Per-turn average
+            if self.turn_count > 0:
+                avg_cost = session_cost / self.turn_count
+                avg_tokens = total_tokens / self.turn_count if total_tokens > 0 else 0
+                analytics.append(f"  Avg Cost/Turn:    ${avg_cost:.4f}")
+                analytics.append(f"  Avg Tokens/Turn:  {avg_tokens:.0f}")
+                analytics.append("")
+            
+            # Commits
+            try:
+                commits = self.engine.db.index.list_commits(self.engine.active_branch)
+                analytics.append(f"  Commits:          {len(commits)}")
+            except:
+                pass
+            
+            from rich.panel import Panel
+            console.print(Panel(
+                "\n".join(analytics),
+                title="[bold]Session & Usage Analytics[/bold]",
+                border_style=THEME['primary'],
+                padding=(1, 2)
+            ))
+            
+        except Exception as e:
+            render_error(f"Failed to show analytics: {e}")
 
     def _interactive_provider_switch(self) -> None:
         """Let the user switch provider + model interactively."""
