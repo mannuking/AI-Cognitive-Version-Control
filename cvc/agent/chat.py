@@ -43,6 +43,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cvc.agent.context_autopilot import ContextAutopilot, AutopilotConfig
 from cvc.agent.cost_tracker import CostTracker
 from cvc.agent.executor import ToolExecutor
 from cvc.agent.llm import AgentLLM, StreamEvent
@@ -55,6 +56,9 @@ from cvc.agent.renderer import (
     print_help,
     print_input_prompt,
     render_auto_commit,
+    render_autopilot_action,
+    render_autopilot_diagnostics,
+    render_context_health,
     render_cost_summary,
     render_error,
     render_git_startup_info,
@@ -389,6 +393,15 @@ class AgentSession:
         # Clipboard image dedup — track hash of the last clipboard image
         # we attached so we don't re-send the same screenshot on every prompt
         self._last_clipboard_hash: str | None = None
+
+        # Context Autopilot — self-healing context engine
+        self.autopilot = ContextAutopilot(
+            model=config.model,
+            config=AutopilotConfig(
+                enabled=os.environ.get("CVC_AUTOPILOT", "1") != "0",
+            ),
+        )
+        self._health_bar: str = ""  # Cached health bar for the prompt
 
         # Build auto-context
         auto_ctx = ""
@@ -743,6 +756,22 @@ class AgentSession:
         if self._assistant_turns_since_commit >= AUTO_COMMIT_INTERVAL:
             self._auto_commit()
 
+        # ── Context Autopilot: self-healing context management ───────────
+        # Runs after every turn. Monitors context health and takes
+        # graduated actions (thin → compact → aggressive compact) based
+        # on utilization thresholds. CVC commits before any compaction
+        # so nothing is ever lost.
+        self.messages, health = self.autopilot.run(
+            self.messages, engine=self.engine
+        )
+
+        # Show autopilot actions if any were taken
+        if health.actions_taken:
+            render_autopilot_action(health.actions_taken)
+
+        # Cache the health bar for the input prompt
+        self._health_bar = health.format_bar_rich(width=15)
+
     async def _execute_tools_parallel(self, tool_calls: list) -> list[str]:
         """
         Execute tool calls — in parallel when there are multiple independent
@@ -965,11 +994,19 @@ class AgentSession:
                 }] + keep_end
                 render_success(f"Compacted: removed {removed} messages, keeping recent context.")
 
+        elif cmd == "/health":
+            # Context Autopilot health dashboard
+            health = self.autopilot.assess_health(self.messages)
+            render_context_health(health)
+            if arg and arg.lower() in ("verbose", "v", "diag", "diagnostics"):
+                render_autopilot_diagnostics(self.autopilot.get_diagnostics())
+
         elif cmd == "/model":
             if arg:
                 self.config.model = arg
                 self.llm.model = arg
                 self.cost_tracker.model = arg
+                self.autopilot.update_model(arg)
                 render_success(f"Model changed to: {arg}")
             else:
                 self._interactive_model_switch()
@@ -1562,6 +1599,7 @@ class AgentSession:
         self.config.model = new_model
         self.llm.model = new_model
         self.cost_tracker.model = new_model
+        self.autopilot.update_model(new_model)
 
         try:
             from cvc.core.models import GlobalConfig
@@ -1929,12 +1967,14 @@ async def _run_agent_async(
                     user_input = await get_input_with_completion(
                         branch=engine.active_branch,
                         turn=session.turn_count + 1,
+                        health_bar=session._health_bar,
                     )
                 else:
                     user_input = await asyncio.to_thread(
                         print_input_prompt,
                         engine.active_branch,
                         session.turn_count + 1,
+                        session._health_bar,
                     )
             except (KeyboardInterrupt, EOFError):
                 break

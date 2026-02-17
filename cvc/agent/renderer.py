@@ -199,6 +199,7 @@ def print_help() -> None:
         ("/serve", "Start the CVC proxy in a new terminal"),
         ("/init", "Initialize CVC in the current workspace"),
         ("/compact", "Summarize and compact the conversation"),
+        ("/health", "Context Autopilot health dashboard"),
         ("/clear", "Clear the conversation (keeps CVC state)"),
         ("/exit, /quit", "Exit the agent"),
     ]
@@ -216,14 +217,16 @@ def print_help() -> None:
     console.print()
 
 
-def print_input_prompt(branch: str, turn: int) -> str:
+def print_input_prompt(branch: str, turn: int, health_bar: str = "") -> str:
     """Print the input prompt and return user input."""
+    health_suffix = f"  {health_bar}" if health_bar else ""
     prompt_text = (
         f"[{THEME['primary_dim']}]╭─[/{THEME['primary_dim']}]"
         f"[bold {THEME['accent_soft']}] CVC[/bold {THEME['accent_soft']}]"
         f"[{THEME['text_dim']}]@[/{THEME['text_dim']}]"
         f"[{THEME['branch']}]{branch}[/{THEME['branch']}]"
         f"[{THEME['text_dim']}] (turn {turn})[/{THEME['text_dim']}]"
+        f"{health_suffix}"
     )
     console.print(prompt_text)
 
@@ -724,7 +727,7 @@ SLASH_COMMANDS = [
     "/help", "/status", "/log", "/commit", "/branch", "/restore",
     "/search", "/model", "/provider", "/undo", "/web", "/git",
     "/cost", "/image", "/paste", "/memory", "/serve", "/init", "/compact",
-    "/clear", "/exit", "/quit",
+    "/health", "/clear", "/exit", "/quit",
 ]
 
 # Module-level list to pass pasted images from the Ctrl+V key binding
@@ -739,7 +742,7 @@ def get_pending_paste_images() -> list[tuple[str, str]]:
     return imgs
 
 
-async def get_input_with_completion(branch: str, turn: int) -> str:
+async def get_input_with_completion(branch: str, turn: int, health_bar: str = "") -> str:
     """
     Get user input with tab completion for slash commands.
     Falls back to basic input if prompt_toolkit is not available.
@@ -845,13 +848,15 @@ async def get_input_with_completion(branch: str, turn: int) -> str:
             key_bindings=kb,
         )
 
-        # Show the CVC prompt header
+        # Show the CVC prompt header (with optional health bar)
+        health_suffix = f"  {health_bar}" if health_bar else ""
         console.print(
             f"[{THEME['primary_dim']}]╭─[/{THEME['primary_dim']}]"
             f"[bold {THEME['accent_soft']}] CVC[/bold {THEME['accent_soft']}]"
             f"[{THEME['text_dim']}]@[/{THEME['text_dim']}]"
             f"[{THEME['branch']}]{branch}[/{THEME['branch']}]"
             f"[{THEME['text_dim']}] (turn {turn})[/{THEME['text_dim']}]"
+            f"{health_suffix}"
         )
 
         line = await session.prompt_async("╰─▸ ")
@@ -859,7 +864,116 @@ async def get_input_with_completion(branch: str, turn: int) -> str:
 
     except ImportError:
         # Fall back to basic Rich input
-        return await asyncio.to_thread(print_input_prompt, branch, turn)
+        return await asyncio.to_thread(print_input_prompt, branch, turn, health_bar)
     except (EOFError, KeyboardInterrupt):
         return "/exit"
 
+
+# ---------------------------------------------------------------------------
+# Context Autopilot Rendering
+# ---------------------------------------------------------------------------
+
+def render_autopilot_action(actions: list[str]) -> None:
+    """Show Context Autopilot actions taken during a turn."""
+    if not actions:
+        return
+    console.print()
+    console.print(
+        f"  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
+        f"[bold #CC7733]Context Autopilot[/bold #CC7733]"
+    )
+    for action in actions:
+        console.print(f"    [{THEME['text_dim']}]→ {action}[/{THEME['text_dim']}]")
+
+
+def render_context_health(report) -> None:
+    """
+    Render a detailed context health dashboard for /health command.
+    Accepts a ContextHealthReport object.
+    """
+    from cvc.agent.context_autopilot import HealthLevel
+
+    color_map = {
+        HealthLevel.GREEN: THEME["success"],
+        HealthLevel.YELLOW: THEME["warning"],
+        HealthLevel.ORANGE: "#CC7733",
+        HealthLevel.RED: THEME["error"],
+    }
+    label_map = {
+        HealthLevel.GREEN: "HEALTHY",
+        HealthLevel.YELLOW: "THINNING",
+        HealthLevel.ORANGE: "COMPACTING",
+        HealthLevel.RED: "CRITICAL",
+    }
+    color = color_map.get(report.health_level, THEME["text"])
+    label = label_map.get(report.health_level, "UNKNOWN")
+
+    # Build the health bar
+    bar = report.format_bar_rich(width=30)
+
+    content = (
+        f"  Status    [{color}]● {label}[/{color}]\n"
+        f"  Context   {bar}\n"
+        f"  Tokens    [bold]{report.estimated_tokens:,}[/bold] / {report.context_limit:,}\n"
+        f"  Remaining [bold]{report.remaining_tokens:,}[/bold] tokens ({report.remaining_pct:.0f}%)\n"
+        f"\n"
+        f"  [{THEME['text_dim']}]Breakdown:[/{THEME['text_dim']}]\n"
+        f"    System     {report.system_tokens:>8,} tokens\n"
+        f"    User       {report.user_tokens:>8,} tokens\n"
+        f"    Assistant  {report.assistant_tokens:>8,} tokens\n"
+        f"    Tool       {report.tool_result_tokens:>8,} tokens "
+        f"({report.tool_result_count} results)\n"
+        f"\n"
+        f"  [{THEME['text_dim']}]Messages: {report.message_count}  │  "
+        f"Thinnable: {report.thinning_candidates}  │  "
+        f"Compactable: {'Yes' if report.compaction_available else 'No'}[/{THEME['text_dim']}]"
+    )
+
+    if report.actions_taken:
+        content += f"\n\n  [{THEME['warning']}]Actions taken this turn:[/{THEME['warning']}]"
+        for action in report.actions_taken:
+            content += f"\n    → {action}"
+
+    console.print(
+        Panel(
+            content,
+            border_style=color,
+            title=f"[bold {color}]Context Autopilot — Health Dashboard[/bold {color}]",
+            padding=(1, 2),
+        )
+    )
+
+
+def render_autopilot_diagnostics(diagnostics: dict) -> None:
+    """Render full autopilot diagnostics for /health verbose."""
+    content = (
+        f"  Enabled     [bold]{diagnostics['enabled']}[/bold]\n"
+        f"  Model       {diagnostics['model']}\n"
+        f"  Limit       {diagnostics['context_limit']:,} tokens\n"
+        f"\n"
+        f"  [{THEME['text_dim']}]Thresholds:[/{THEME['text_dim']}]\n"
+        f"    Thin       {diagnostics['thresholds']['thin']}\n"
+        f"    Compact    {diagnostics['thresholds']['compact']}\n"
+        f"    Critical   {diagnostics['thresholds']['critical']}\n"
+        f"\n"
+        f"  [{THEME['text_dim']}]Session Stats:[/{THEME['text_dim']}]\n"
+        f"    Compactions  {diagnostics['session_stats']['compactions_performed']}\n"
+        f"    Thinnings    {diagnostics['session_stats']['thinnings_performed']}\n"
+        f"    Tokens Saved {diagnostics['session_stats']['tokens_saved']:,}\n"
+    )
+
+    actions = diagnostics["session_stats"].get("actions_log", [])
+    if actions:
+        content += f"\n  [{THEME['text_dim']}]Recent Actions:[/{THEME['text_dim']}]"
+        for entry in actions[-5:]:
+            for action in entry.get("actions", []):
+                content += f"\n    → {action}"
+
+    console.print(
+        Panel(
+            content,
+            border_style=THEME["primary_dim"],
+            title=f"[bold {THEME['primary_bright']}]Autopilot Diagnostics[/bold {THEME['primary_bright']}]",
+            padding=(1, 2),
+        )
+    )
