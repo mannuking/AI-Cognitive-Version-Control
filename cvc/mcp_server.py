@@ -151,13 +151,13 @@ class _MCPSession:
             self.db = ContextDatabase(config)
             self.engine = CVCEngine(config, self.db)
             
-            # AUTO-RESTORE: Load the last commit's context to prevent data loss on restart
-            self._auto_restore_last_commit()
+            # AUTO-RESTORE: Engine now auto-hydrates from HEAD commit / persistent cache
+            # in its __init__, so no separate restore step needed.
             
             self.initialized = True
             
             logger.info(
-                "CVC initialized: workspace=%s, branch=%s, context_size=%d (auto-restored)",
+                "CVC initialized: workspace=%s, branch=%s, context_size=%d",
                 workspace, self.engine.active_branch, len(self.engine.context_window)
             )
         

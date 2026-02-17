@@ -326,28 +326,82 @@ class AgentSession:
 
     def _load_existing_context(self) -> None:
         """
-        If there's existing context in the CVC engine (from a previous session),
-        inject it as context-setting messages so the agent has memory.
+        If there's existing context in the CVC engine (from a previous session
+        or from a cross-mode restore — e.g. MCP / Proxy → CLI), inject the
+        full conversation history into the LLM message list so the agent has
+        complete memory of everything that was discussed.
+
+        This is the core feature of CVC: every message ever exchanged in this
+        directory — regardless of provider, model, or mode — is preserved and
+        restored automatically.
         """
         existing = self.engine.context_window
-        if existing and len(existing) > 0:
-            # Add a context restoration notice
+        if not existing:
+            return
+
+        # Separate user/assistant messages from system/tool messages
+        conversation_msgs = [
+            m for m in existing
+            if m.role in ("user", "assistant", "tool")
+        ]
+
+        if not conversation_msgs:
+            return
+
+        # For large histories, inject a summary of older messages
+        # and the full recent messages to stay within token limits
+        MAX_FULL_MESSAGES = 40  # Keep last N messages in full
+
+        if len(conversation_msgs) > MAX_FULL_MESSAGES:
+            # Summarize older messages
+            older = conversation_msgs[:-MAX_FULL_MESSAGES]
+            recent = conversation_msgs[-MAX_FULL_MESSAGES:]
+
             summary_parts = []
-            for msg in existing[-10:]:  # Last 10 messages as context
+            for msg in older:
                 if msg.role in ("user", "assistant") and msg.content:
-                    preview = msg.content[:200]
+                    preview = msg.content[:150].replace("\n", " ")
                     summary_parts.append(f"[{msg.role}]: {preview}")
 
             if summary_parts:
-                context_summary = "\n".join(summary_parts)
+                # Limit summary to avoid token explosion
+                summary_text = "\n".join(summary_parts[-30:])
                 self.messages.append({
                     "role": "system",
                     "content": (
-                        "[CVC Time Machine] Previous session context restored. "
-                        f"Here's a summary of the recent conversation:\n\n{context_summary}\n\n"
-                        "Continue from where you left off."
+                        f"[CVC Time Machine] Previous session restored. "
+                        f"{len(existing)} total messages in context history.\n"
+                        f"Summary of older conversation ({len(older)} messages):\n\n"
+                        f"{summary_text}\n\n"
+                        f"Full recent conversation follows."
                     ),
                 })
+
+            # Inject recent messages as actual conversation turns
+            for msg in recent:
+                entry: dict[str, Any] = {"role": msg.role, "content": msg.content}
+                if msg.name:
+                    entry["name"] = msg.name
+                if msg.tool_call_id:
+                    entry["tool_call_id"] = msg.tool_call_id
+                self.messages.append(entry)
+        else:
+            # Small enough to inject everything
+            self.messages.append({
+                "role": "system",
+                "content": (
+                    f"[CVC Time Machine] Previous session restored. "
+                    f"{len(existing)} messages in context history. "
+                    f"Full conversation follows."
+                ),
+            })
+            for msg in conversation_msgs:
+                entry = {"role": msg.role, "content": msg.content}
+                if msg.name:
+                    entry["name"] = msg.name
+                if msg.tool_call_id:
+                    entry["tool_call_id"] = msg.tool_call_id
+                self.messages.append(entry)
 
     async def run_turn(self, user_input: str) -> None:
         """
@@ -477,6 +531,18 @@ class AgentSession:
 
                 self.messages.append(assistant_msg)
 
+                # ── Push assistant tool-call message to CVC context ──
+                tool_summary = ", ".join(tc.name for tc in tool_calls)
+                self.engine.push_message(
+                    ContextMessage(
+                        role="assistant",
+                        content=(
+                            (response_text + "\n\n" if response_text else "")
+                            + f"[Tool calls: {tool_summary}]"
+                        ),
+                    )
+                )
+
                 # Show any text the model produced before tool calls
                 if response_text and not streamer.is_active():
                     render_markdown_response(response_text)
@@ -492,6 +558,18 @@ class AgentSession:
                         "name": tc.name,
                         "content": result,
                     })
+
+                    # ── Push tool result to CVC context ──
+                    # Truncate very large tool outputs for storage
+                    stored_result = result[:4000] if len(result) > 4000 else result
+                    self.engine.push_message(
+                        ContextMessage(
+                            role="tool",
+                            content=f"[{tc.name}] {stored_result}",
+                            name=tc.name,
+                            tool_call_id=tc.id,
+                        )
+                    )
 
                     # Auto-read files from error messages
                     if result.startswith("Error:"):
@@ -1571,47 +1649,21 @@ async def _run_agent_async(
     db = ContextDatabase(config)
     engine = CVCEngine(config, db)
 
-    # AUTO-RESTORE: Load last commit or persistent cache to prevent data loss
-    # CROSS-MODE SUPPORT: CLI can restore sessions from MCP or Proxy
-    try:
-        # Try to load from last commit first
-        bp = db.index.branch_pointer(engine.active_branch)
-        if bp and bp.head_hash:
-            head_commit = db.index.get_commit(bp.head_hash)
-            if head_commit:
-                blob = db.content.get_blob(head_commit.content_hash)
-                if blob and blob.messages:
-                    engine._context_window = list(blob.messages)
-                    engine._reasoning_trace = blob.reasoning_trace
-                    
-                    # Cross-mode detection
-                    previous_mode = head_commit.metadata.mode or "unknown"
-                    if previous_mode != "cli":
-                        logger.info(
-                            "🔄 Cross-mode restore: %d messages from %s → CLI (commit %s)",
-                            len(blob.messages),
-                            previous_mode.upper(),
-                            bp.head_hash[:12]
-                        )
-                    else:
-                        logger.info(
-                            "✅ CLI auto-restored %d messages from last commit %s",
-                            len(blob.messages),
-                            bp.head_hash[:12]
-                        )
-                else:
-                    # Fallback to persistent cache
-                    engine._load_persistent_cache()
-            else:
-                engine._load_persistent_cache()
-        else:
-            # No commits yet, try persistent cache
-            engine._load_persistent_cache()
-    except Exception as e:
-        logger.debug("CLI auto-restore failed (non-fatal): %s", e)
-        # Still try persistent cache
+    # The CVCEngine.__init__ now auto-hydrates context from the HEAD commit
+    # and/or persistent cache, so the context_window is already populated.
+    # Log cross-mode detection for the user.
+    if engine.context_window:
         try:
-            engine._load_persistent_cache()
+            bp = db.index.get_branch(engine.active_branch)
+            if bp:
+                head_commit = db.index.get_commit(bp.head_hash)
+                if head_commit and head_commit.metadata.mode and head_commit.metadata.mode != "cli":
+                    logger.info(
+                        "Cross-mode restore: %d messages from %s -> CLI (commit %s)",
+                        len(engine.context_window),
+                        head_commit.metadata.mode.upper(),
+                        bp.head_hash[:12],
+                    )
         except Exception:
             pass
 

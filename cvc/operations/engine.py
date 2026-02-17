@@ -47,6 +47,11 @@ class CVCEngine:
         self._context_window: list[ContextMessage] = []
         self._reasoning_trace: str = ""
 
+        # Auto-hydrate context from the HEAD commit so that
+        # `cvc status`, session resume, and every other command that
+        # instantiates the engine immediately sees the real message count.
+        self._hydrate_from_head()
+
     # -- Public accessors --------------------------------------------------
 
     @property
@@ -87,6 +92,69 @@ class CVCEngine:
         """Export the current context window as OpenAI-compatible dicts."""
         return [m.model_dump(exclude_none=True) for m in self._context_window]
     
+    # -- Context hydration (startup) ------------------------------------
+
+    def _hydrate_from_head(self) -> None:
+        """
+        Populate the in-memory context window from the most recent source
+        of truth, checked in this order:
+
+          1. The HEAD commit's content blob (authoritative, committed data).
+          2. The persistent JSON cache (uncommitted but saved-to-disk data).
+
+        If the persistent cache contains *more* messages than the HEAD blob
+        (i.e. messages were pushed after the last commit but before a crash
+        or clean shutdown), the cache wins so no data is lost.
+        """
+        head_messages: list[ContextMessage] = []
+        head_trace = ""
+
+        # --- 1. Try the HEAD commit blob ---------------------------------
+        try:
+            bp = self.db.index.get_branch(self._active_branch)
+            if bp is not None:
+                blob = self.db.retrieve_blob(bp.head_hash)
+                if blob is not None and blob.messages:
+                    head_messages = list(blob.messages)
+                    head_trace = blob.reasoning_trace
+                    logger.info(
+                        "Hydrated %d messages from HEAD commit %s",
+                        len(head_messages),
+                        bp.head_hash[:12],
+                    )
+        except Exception as exc:
+            logger.debug("HEAD blob hydration failed (non-fatal): %s", exc)
+
+        # --- 2. Try the persistent cache ---------------------------------
+        cache_messages: list[ContextMessage] = []
+        cache_trace = ""
+        try:
+            cache_file = self.config.cvc_root / "context_cache.json"
+            if cache_file.exists():
+                cache_data = json.loads(cache_file.read_text(encoding="utf-8"))
+                msgs_raw = cache_data.get("messages", [])
+                if msgs_raw:
+                    cache_messages = [
+                        ContextMessage.model_validate(m) for m in msgs_raw
+                    ]
+                    cache_trace = cache_data.get("reasoning_trace", "")
+        except Exception as exc:
+            logger.debug("Persistent cache load failed (non-fatal): %s", exc)
+
+        # --- Pick whichever source has more data -------------------------
+        if len(cache_messages) > len(head_messages):
+            self._context_window = cache_messages
+            self._reasoning_trace = cache_trace
+            logger.info(
+                "Using persistent cache (%d msgs) over HEAD blob (%d msgs)",
+                len(cache_messages),
+                len(head_messages),
+            )
+        elif head_messages:
+            self._context_window = head_messages
+            self._reasoning_trace = head_trace
+        # else: both empty → context_window stays []
+
     def _save_persistent_cache(self) -> None:
         """
         Save the current context window to a persistent cache file.

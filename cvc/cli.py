@@ -1665,7 +1665,32 @@ def status() -> None:
     config = engine.config
 
     head_short = (engine.head_hash or "—")[:12]
-    ctx_size = len(engine.context_window)
+    ctx_messages = engine.context_window
+    ctx_size = len(ctx_messages)
+
+    # Break down by role
+    user_msgs = sum(1 for m in ctx_messages if m.role == "user")
+    assistant_msgs = sum(1 for m in ctx_messages if m.role == "assistant")
+    tool_msgs = sum(1 for m in ctx_messages if m.role == "tool")
+    system_msgs = sum(1 for m in ctx_messages if m.role == "system")
+
+    # Build context detail string
+    if ctx_size > 0:
+        ctx_detail = (
+            f"[bold]{ctx_size}[/bold] messages  "
+            f"[dim]({user_msgs} user, {assistant_msgs} assistant, "
+            f"{tool_msgs} tool, {system_msgs} system)[/dim]"
+        )
+    else:
+        ctx_detail = "[dim]0 messages — start a chat with [bold]cvc chat[/bold][/dim]"
+
+    # Count total commits
+    commits = db.index.list_commits(branch=engine.active_branch, limit=9999)
+    commit_count = len(commits)
+
+    # Check persistent cache
+    cache_file = config.cvc_root / "context_cache.json"
+    cache_status = "[#55AA55]●[/#55AA55] active" if cache_file.exists() else "[dim]○ none[/dim]"
 
     # Header info
     console.print(
@@ -1673,7 +1698,9 @@ def status() -> None:
             f"  Agent      [bold]{config.agent_id}[/bold]\n"
             f"  Branch     [bold #CC3333]{engine.active_branch}[/bold #CC3333]\n"
             f"  HEAD       [bold #CCAA44]{head_short}[/bold #CCAA44]\n"
-            f"  Context    [bold]{ctx_size}[/bold] messages\n"
+            f"  Context    {ctx_detail}\n"
+            f"  Commits    [bold]{commit_count}[/bold]\n"
+            f"  Cache      {cache_status}\n"
             f"  Provider   [dim]{config.provider} / {config.model}[/dim]",
             border_style="#8B0000",
             title="[bold white]CVC Status[/bold white]",

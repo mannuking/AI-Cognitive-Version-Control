@@ -145,55 +145,26 @@ def _load_config() -> CVCConfig:
 
 def _auto_restore_context() -> None:
     """
-    Auto-restore the last commit's context into memory on proxy startup.
-    
-    Ensures conversations persist across proxy restarts.
-    Priority: Database commit > Persistent cache > Empty state
-    CROSS-MODE SUPPORT: Proxy can restore sessions from MCP or CLI
+    Auto-restore context on proxy startup.
+
+    As of the engine rewrite, ``CVCEngine.__init__`` now auto-hydrates
+    the context window from the HEAD commit blob or persistent cache.
+    This function just logs the result for the proxy startup banner.
     """
-    global _engine, _db
-    
-    if not _engine or not _db:
+    global _engine
+
+    if not _engine:
         return
-    
-    try:
-        bp = _db.index.get_branch(_engine.active_branch)
-        if not bp:
-            logger.warning("No branch found, trying cache")
-            _engine._load_persistent_cache()
-            return
-        
-        head_commit = _db.index.get_commit(bp.head_hash)
-        if not head_commit or head_commit.message == "Genesis — CVC initialised":
-            logger.info("Genesis commit, loading cache")
-            _engine._load_persistent_cache()
-            return
-        
-        blob = _db.retrieve_blob(bp.head_hash)
-        if blob and blob.messages:
-            _engine._context_window = list(blob.messages)
-            _engine._reasoning_trace = blob.reasoning_trace
-            
-            # Cross-mode detection
-            previous_mode = head_commit.metadata.mode or "unknown"
-            if previous_mode != "proxy":
-                logger.info(
-                    "🔄 Cross-mode restore: %d messages from %s → PROXY (commit %s)",
-                    len(blob.messages),
-                    previous_mode.upper(),
-                    bp.head_hash[:12]
-                )
-            else:
-                logger.info(
-                    "✅ Proxy auto-restored %d messages from commit %s",
-                    len(blob.messages), bp.head_hash[:12]
-                )
-        else:
-            _engine._load_persistent_cache()
-    
-    except Exception as e:
-        logger.warning("Auto-restore failed, trying cache: %s", e)
-        _engine._load_persistent_cache()
+
+    ctx = _engine.context_window
+    if ctx:
+        logger.info(
+            "Proxy started with %d messages in context (branch: %s)",
+            len(ctx),
+            _engine.active_branch,
+        )
+    else:
+        logger.info("Proxy started with empty context (branch: %s)", _engine.active_branch)
 
 
 @asynccontextmanager
@@ -327,6 +298,17 @@ async def chat_completions(raw_request: Request) -> JSONResponse:
 
     # 3. Standard generation — proxy to upstream provider
     committed_prefix_len = result_state.get("committed_prefix_len", 0)
+
+    # 3a. Record NEW inbound messages in the CVC context window.
+    #     The OpenAI API sends the full message history on each call,
+    #     so we only store messages beyond what we already have.
+    existing_count = len(_engine.context_window)
+    inbound_count = len(request.messages)
+    if inbound_count > existing_count:
+        # Only push messages that are new (beyond what CVC already has)
+        for msg in request.messages[existing_count:]:
+            if msg.role in ("user", "system", "tool"):
+                _engine.push_chat_message(msg)
 
     try:
         response = await _adapter.complete(
@@ -648,6 +630,13 @@ async def anthropic_messages(request: Request) -> JSONResponse:
 
     # --- Run through CVC state machine (same as /v1/chat/completions) ---
     assert _graph is not None
+
+    # Record inbound user messages in CVC context (Anthropic native endpoint)
+    existing_count = len(_engine.context_window)
+    for msg in internal_request.messages[existing_count:]:
+        if msg.role in ("user", "system", "tool"):
+            _engine.push_chat_message(msg)
+
     initial_state: CVCGraphState = {
         "request": internal_request,
         "is_cvc_command": False,
