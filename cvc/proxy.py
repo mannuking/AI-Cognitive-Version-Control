@@ -56,10 +56,11 @@ logger = logging.getLogger("cvc.proxy")
 # ---------------------------------------------------------------------------
 
 # When CVC_TIME_MACHINE=1 (set by ``cvc launch``), auto-commit fires much
-# more aggressively — every 3 assistant turns instead of every 10.
+# more aggressively — every assistant turn instead of every 3.
+# This ensures EVERYTHING is saved to .cvc/ database with zero data loss.
 _TIME_MACHINE_ENABLED: bool = os.environ.get("CVC_TIME_MACHINE", "0") == "1"
-_TIME_MACHINE_INTERVAL: int = int(os.environ.get("CVC_TIME_MACHINE_INTERVAL", "3"))
-_NORMAL_INTERVAL: int = int(os.environ.get("CVC_AUTO_COMMIT_INTERVAL", "10"))
+_TIME_MACHINE_INTERVAL: int = int(os.environ.get("CVC_TIME_MACHINE_INTERVAL", "1"))  # Every turn!
+_NORMAL_INTERVAL: int = int(os.environ.get("CVC_AUTO_COMMIT_INTERVAL", "3"))  # Every 3 turns
 
 # Session detection — if no traffic for this many seconds, new session
 _SESSION_TIMEOUT: int = int(os.environ.get("CVC_SESSION_TIMEOUT", "1800"))  # 30 min
@@ -142,6 +143,47 @@ def _load_config() -> CVCConfig:
     return CVCConfig.for_project()
 
 
+def _auto_restore_context() -> None:
+    """
+    Auto-restore the last commit's context into memory on proxy startup.
+    
+    Ensures conversations persist across proxy restarts.
+    Priority: Database commit > Persistent cache > Empty state
+    """
+    global _engine, _db
+    
+    if not _engine or not _db:
+        return
+    
+    try:
+        bp = _db.index.get_branch(_engine.active_branch)
+        if not bp:
+            logger.warning("No branch found, trying cache")
+            _engine._load_persistent_cache()
+            return
+        
+        head_commit = _db.index.get_commit(bp.head_hash)
+        if not head_commit or head_commit.message == "Genesis — CVC initialised":
+            logger.info("Genesis commit, loading cache")
+            _engine._load_persistent_cache()
+            return
+        
+        blob = _db.retrieve_blob(bp.head_hash)
+        if blob and blob.messages:
+            _engine._context_window = list(blob.messages)
+            _engine._reasoning_trace = blob.reasoning_trace
+            logger.info(
+                "✅ Proxy auto-restored %d messages from commit %s",
+                len(blob.messages), bp.head_hash[:12]
+            )
+        else:
+            _engine._load_persistent_cache()
+    
+    except Exception as e:
+        logger.warning("Auto-restore failed, trying cache: %s", e)
+        _engine._load_persistent_cache()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialise all CVC subsystems on startup, tear down on shutdown."""
@@ -152,6 +194,10 @@ async def lifespan(app: FastAPI):
 
     _db = ContextDatabase(_config)
     _engine = CVCEngine(_config, _db)
+    
+    # Auto-restore last commit or persistent cache on startup
+    _auto_restore_context()
+    
     _adapter = create_adapter(
         provider=_config.provider,
         api_key=_config.api_key,

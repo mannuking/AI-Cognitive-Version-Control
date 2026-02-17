@@ -8,6 +8,7 @@ structured ``CVCOperationResponse``.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -66,6 +67,7 @@ class CVCEngine:
     def push_message(self, msg: ContextMessage) -> None:
         """Append a message to the live context window."""
         self._context_window.append(msg)
+        self._save_persistent_cache()  # Auto-save on every message
 
     def push_chat_message(self, cm: ChatMessage) -> None:
         content_str = cm.content if isinstance(cm.content, str) else str(cm.content)
@@ -84,6 +86,55 @@ class CVCEngine:
     def get_context_as_messages(self) -> list[dict[str, Any]]:
         """Export the current context window as OpenAI-compatible dicts."""
         return [m.model_dump(exclude_none=True) for m in self._context_window]
+    
+    def _save_persistent_cache(self) -> None:
+        """
+        Save the current context window to a persistent cache file.
+        
+        This prevents data loss if the MCP server or proxy crashes before commit.
+        The cache is loaded on startup if no commits exist yet.
+        """
+        try:
+            cache_file = self.config.cvc_dir / "context_cache.json"
+            cache_data = {
+                "branch": self._active_branch,
+                "messages": [m.model_dump() for m in self._context_window],
+                "reasoning_trace": self._reasoning_trace,
+                "timestamp": time.time(),
+            }
+            cache_file.write_text(json.dumps(cache_data, indent=2))
+        except Exception as e:
+            logger.warning("Failed to save persistent cache (non-fatal): %s", e)
+    
+    def _load_persistent_cache(self) -> bool:
+        """
+        Load the persistent cache if it exists and no commits have been made.
+        
+        Returns True if cache was loaded, False otherwise.
+        """
+        try:
+            cache_file = self.config.cvc_dir / "context_cache.json"
+            if not cache_file.exists():
+                return False
+            
+            cache_data = json.loads(cache_file.read_text())
+            messages_data = cache_data.get("messages", [])
+            
+            if messages_data:
+                self._context_window = [
+                    ContextMessage.model_validate(m) for m in messages_data
+                ]
+                self._reasoning_trace = cache_data.get("reasoning_trace", "")
+                logger.info(
+                    "Loaded %d messages from persistent cache (timestamp: %s)",
+                    len(self._context_window),
+                    cache_data.get("timestamp", "unknown")
+                )
+                return True
+        except Exception as e:
+            logger.warning("Failed to load persistent cache (non-fatal): %s", e)
+        
+        return False
 
     # ======================================================================
     # 4.1  COMMIT

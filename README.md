@@ -573,6 +573,8 @@ cvc mcp                 # Start MCP server (stdio transport)
 cvc mcp --transport sse # Start MCP server (HTTP/SSE transport)
 ```
 
+> **Multi-Workspace Support:** CVC automatically detects your project workspace. When working with multiple projects, use the `cvc_set_workspace` tool to switch between them. Each project gets its own `.cvc/` folder. See [MULTI_WORKSPACE.md](MULTI_WORKSPACE.md) for details.
+
 <br>
 
 <div align="center">

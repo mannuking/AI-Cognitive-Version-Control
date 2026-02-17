@@ -74,22 +74,22 @@ class _MCPSession:
         Multi-strategy workspace detection with graceful fallbacks.
         
         Priority order:
-        1. Explicit CVC_WORKSPACE env var
-        2. Workspace passed via cvc_set_workspace tool
+        1. Workspace passed via cvc_set_workspace tool (explicit override)
+        2. Explicit CVC_WORKSPACE env var
         3. IDE-specific env vars (CODEX_WORKSPACE_ROOT, etc.)
         4. Walk up from cwd to find .cvc/, .git/, pyproject.toml
-        5. Fallback to os.getcwd() with warning
+        5. Fallback to cwd with warning to use cvc_set_workspace tool
         """
-        # Strategy 1: Explicit env var
+        # Strategy 1: Already set via cvc_set_workspace tool (highest priority)
+        if self.workspace:
+            return self.workspace
+        
+        # Strategy 2: Explicit env var
         if env_ws := os.environ.get("CVC_WORKSPACE"):
             ws = Path(env_ws).resolve()
             if ws.exists():
                 logger.info("Workspace from CVC_WORKSPACE: %s", ws)
                 return ws
-        
-        # Strategy 2: Already set (via tool call)
-        if self.workspace:
-            return self.workspace
         
         # Strategy 3: IDE-specific env vars
         for var in ["CODEX_WORKSPACE_ROOT", "PROJECT_ROOT", "WORKSPACE_FOLDER"]:
@@ -111,10 +111,11 @@ class _MCPSession:
                 break
             current = parent
         
-        # Strategy 5: Fallback to cwd (unreliable but better than nothing)
+        # Strategy 5: Fallback to cwd (unreliable - user should call cvc_set_workspace)
         logger.warning(
-            "Could not detect workspace reliably. Using cwd: %s. "
-            "Set CVC_WORKSPACE env var for accuracy.", cwd
+            "⚠️  Could not detect workspace reliably. Using cwd: %s.\n"
+            "For multi-workspace support, call cvc_set_workspace tool with your project path.",
+            cwd
         )
         return cwd
     
@@ -149,15 +150,78 @@ class _MCPSession:
             # Initialize engine + database
             self.db = ContextDatabase(config)
             self.engine = CVCEngine(config, self.db)
+            
+            # AUTO-RESTORE: Load the last commit's context to prevent data loss on restart
+            self._auto_restore_last_commit()
+            
             self.initialized = True
             
             logger.info(
-                "CVC initialized: workspace=%s, branch=%s, context_size=%d",
+                "CVC initialized: workspace=%s, branch=%s, context_size=%d (auto-restored)",
                 workspace, self.engine.active_branch, len(self.engine.context_window)
             )
         
         finally:
             os.chdir(original_cwd)
+    
+    def _auto_restore_last_commit(self) -> None:
+        """
+        Auto-restore the last commit's context into memory on startup.
+        
+        This ensures conversations persist across IDE/MCP server restarts.
+        Without this, the context window starts empty every time VS Code restarts,
+        causing data loss for users who want to retrieve month-old conversations.
+        
+        Priority:
+        1. Last committed context from database
+        2. Persistent cache file (if crash happened before commit)
+        3. Empty state (new session)
+        """
+        if not self.engine or not self.db:
+            return
+        
+        try:
+            # Get HEAD commit for active branch
+            bp = self.db.index.get_branch(self.engine.active_branch)
+            if not bp:
+                logger.warning("No branch found for auto-restore")
+                # Try loading from persistent cache as fallback
+                self.engine._load_persistent_cache()
+                return
+            
+            # Skip genesis commit (it's empty)
+            head_commit = self.db.index.get_commit(bp.head_hash)
+            if not head_commit or head_commit.message == "Genesis — CVC initialised":
+                logger.info("Genesis commit detected, trying persistent cache")
+                self.engine._load_persistent_cache()
+                return
+            
+            # Retrieve the stored context from database
+            blob = self.db.retrieve_blob(bp.head_hash)
+            if not blob:
+                logger.warning("Could not retrieve blob for HEAD %s", bp.head_hash[:12])
+                # Fallback to cache
+                self.engine._load_persistent_cache()
+                return
+            
+            # Restore context window from database
+            if blob.messages:
+                self.engine._context_window = list(blob.messages)
+                self.engine._reasoning_trace = blob.reasoning_trace
+                
+                logger.info(
+                    "✅ Auto-restored %d messages from last commit %s (%s)",
+                    len(blob.messages),
+                    bp.head_hash[:12],
+                    head_commit.message[:60]
+                )
+            else:
+                logger.info("No messages in HEAD commit, trying persistent cache")
+                self.engine._load_persistent_cache()
+        
+        except Exception as e:
+            logger.warning("Auto-restore failed, trying cache: %s", e)
+            self.engine._load_persistent_cache()
 
 
 # Global session instance (persists for entire MCP server lifetime)
@@ -491,44 +555,84 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
             full_content = arguments.get("full", True)  # Default to full content
             
             if commit_hash:
-                # Read specific commit - use log to find the commit
-                entries = engine.log(limit=100)  # Search in log
-                commit_entry = None
-                for entry in entries:
-                    if entry['hash'].startswith(commit_hash) or entry['short'] == commit_hash:
-                        commit_entry = entry
-                        break
+                # Read specific commit - retrieve ACTUAL MESSAGES from database
+                commit = engine.db.index.get_commit(commit_hash)
                 
-                if not commit_entry:
+                if not commit:
                     return {
                         "error": f"Commit not found: {commit_hash}",
                         "success": False,
                         "messages": []
                     }
                 
-                # Return commit info
-                return {
-                    "success": True,
-                    "commit_hash": commit_entry['short'],
-                    "full_hash": commit_entry['hash'],
-                    "type": commit_entry['type'],
-                    "message": commit_entry['message'],
-                    "timestamp": commit_entry.get('timestamp'),
-                    "note": "To restore this context, use cvc_restore tool with commit hash",
-                }
+                # Retrieve the stored conversation content
+                blob = engine.db.retrieve_blob(commit.commit_hash)
+                if not blob:
+                    return {
+                        "error": f"Could not retrieve content for commit {commit_hash}",
+                        "success": False,
+                        "commit_hash": commit.short_hash,
+                        "message": commit.message,
+                    }
+                
+                # Return FULL conversation from the commit
+                messages = blob.messages[:limit] if blob.messages else []
+                
+                if full_content:
+                    return {
+                        "success": True,
+                        "source": "database",
+                        "commit_hash": commit.short_hash,
+                        "full_hash": commit.commit_hash,
+                        "commit_message": commit.message,
+                        "commit_type": commit.commit_type.value,
+                        "timestamp": commit.metadata.timestamp,
+                        "message_count": len(messages),
+                        "total_messages": len(blob.messages) if blob.messages else 0,
+                        "messages": [
+                            {
+                                "id": i + 1,
+                                "role": m.role,
+                                "content": m.content,
+                                "character_count": len(m.content),
+                            }
+                            for i, m in enumerate(messages)
+                        ],
+                    }
+                else:
+                    return {
+                        "success": True,
+                        "source": "database",
+                        "commit_hash": commit.short_hash,
+                        "commit_message": commit.message,
+                        "timestamp": commit.metadata.timestamp,
+                        "message_count": len(messages),
+                        "messages_preview": [
+                            {
+                                "id": i + 1,
+                                "role": m.role,
+                                "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
+                                "full_length": len(m.content),
+                            }
+                            for i, m in enumerate(messages)
+                        ],
+                    }
+            
             else:
-                # Read current context window - return FULL content
+                # Read current context window from MEMORY (uncommitted work)
                 messages = engine.context_window[:limit]
                 
                 if full_content:
                     # Return complete messages with full content
                     return {
                         "success": True,
-                        "commit_hash": engine.head_hash[:12],
+                        "source": "memory",
+                        "commit_hash": engine.head_hash[:12] if engine.head_hash else "none",
                         "full_hash": engine.head_hash,
                         "branch": engine.active_branch,
                         "message_count": len(messages),
                         "context_size": len(engine.context_window),
+                        "note": "This is uncommitted context. Use cvc_capture_context to save it permanently.",
                         "messages": [
                             {
                                 "id": i + 1,
