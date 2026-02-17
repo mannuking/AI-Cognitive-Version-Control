@@ -93,6 +93,107 @@ MAX_TOOL_ITERATIONS = 25  # Safety limit for tool loops
 MAX_RETRY_ATTEMPTS = 2    # Retry failed tool calls
 
 
+# ---------------------------------------------------------------------------
+# Human-readable argument formatting for each tool type
+# ---------------------------------------------------------------------------
+
+def _humanize_tool_args(tool_name: str, args: dict[str, Any]) -> str:
+    """
+    Turn raw tool arguments into a concise, human-readable description.
+
+    Instead of  grep(pattern='mode', path='src/')
+    Shows       'mode' in src/
+    """
+    def _short(val: Any, limit: int = 40) -> str:
+        s = str(val)
+        return s if len(s) <= limit else s[:limit - 1] + "…"
+
+    def _basename(path: str) -> str:
+        """Short basename or last 2 path components."""
+        p = Path(path)
+        parts = p.parts
+        if len(parts) <= 2:
+            return str(p)
+        return str(Path(*parts[-2:]))
+
+    try:
+        if tool_name == "read_file":
+            path = args.get("path", "")
+            return _basename(path)
+
+        elif tool_name == "write_file":
+            path = args.get("path", "")
+            return _basename(path)
+
+        elif tool_name == "edit_file":
+            path = args.get("path", "")
+            return _basename(path)
+
+        elif tool_name == "patch_file":
+            path = args.get("path", "")
+            return _basename(path)
+
+        elif tool_name == "bash":
+            cmd = args.get("command", "")
+            return f"`{_short(cmd, 50)}`"
+
+        elif tool_name == "glob":
+            pattern = args.get("pattern", "")
+            path = args.get("path", ".")
+            if path and path != ".":
+                return f"'{pattern}' in {_basename(path)}"
+            return f"'{pattern}'"
+
+        elif tool_name == "grep":
+            pattern = args.get("pattern", "")
+            path = args.get("path", "")
+            if path:
+                return f"'{_short(pattern, 30)}' in {_basename(path)}"
+            return f"'{_short(pattern, 40)}'"
+
+        elif tool_name == "list_dir":
+            path = args.get("path", ".")
+            return _basename(path)
+
+        elif tool_name == "web_search":
+            query = args.get("query", "")
+            return f"'{_short(query, 50)}'"
+
+        elif tool_name == "cvc_commit":
+            msg = args.get("message", "")
+            return f"'{_short(msg, 40)}'"
+
+        elif tool_name == "cvc_branch":
+            name = args.get("name", "")
+            return name
+
+        elif tool_name == "cvc_restore":
+            ref = args.get("ref", args.get("commit", ""))
+            return _short(str(ref), 20)
+
+        elif tool_name == "cvc_merge":
+            src = args.get("source", args.get("branch", ""))
+            return src
+
+        elif tool_name == "cvc_search":
+            query = args.get("query", "")
+            return f"'{_short(query, 40)}'"
+
+        elif tool_name == "cvc_diff":
+            return ""
+
+        elif tool_name in ("cvc_status", "cvc_log"):
+            return ""
+
+        # Fallback: show first arg value only
+        if args:
+            first_val = next(iter(args.values()))
+            return _short(first_val, 40)
+        return ""
+    except Exception:
+        return ""
+
+
 def _grab_clipboard_images() -> list[tuple[str, str]]:
     """
     Grab image(s) from the system clipboard.
@@ -645,9 +746,7 @@ class AgentSession:
 
     async def _execute_single_tool(self, tc) -> str:
         """Execute a single tool call with error recovery."""
-        args_summary = ", ".join(
-            f"{k}={repr(v)[:30]}" for k, v in list(tc.arguments.items())[:3]
-        )
+        args_summary = _humanize_tool_args(tc.name, tc.arguments)
         render_tool_call_start(tc.name, args_summary)
 
         start_time = time.time()

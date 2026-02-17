@@ -298,27 +298,25 @@ def render_markdown_response(text: str) -> None:
 
 
 def render_tool_call_start(tool_name: str, args_summary: str) -> None:
-    """Show that a tool is being called."""
-    icon = _tool_icon(tool_name)
+    """Show that a tool is being called — clean, professional, human-readable."""
+    label, icon = _tool_display(tool_name)
+    # args_summary is already a human-friendly description (built by chat.py)
+    desc = args_summary if args_summary else ""
     console.print(
         f"\n  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
-        f"{icon} [{THEME['tool_name']}]{tool_name}[/{THEME['tool_name']}]"
-        f"[{THEME['text_dim']}]({args_summary})[/{THEME['text_dim']}]",
+        f"{icon} [{THEME['tool_name']}]{label}[/{THEME['tool_name']}]"
+        f"{'  ' if desc else ''}"
+        f"[{THEME['text_dim']}]{desc}[/{THEME['text_dim']}]",
         end="",
     )
 
 
 def render_tool_call_result(tool_name: str, result: str, elapsed: float) -> None:
-    """Show the result of a tool call — compact one-liner."""
+    """Show the result of a tool call — clean, informative one-liner."""
     elapsed_str = f"{elapsed:.1f}s" if elapsed >= 0.1 else f"{elapsed * 1000:.0f}ms"
 
-    # Build a brief summary (first meaningful line, heavily truncated)
-    summary = ""
-    for line in result.split("\n"):
-        stripped = line.strip()
-        if stripped:
-            summary = stripped[:80]
-            break
+    # Build a smart summary based on the tool type
+    summary = _smart_result_summary(tool_name, result)
 
     console.print(
         f"  [{THEME['success']}]✓[/{THEME['success']}] "
@@ -329,9 +327,10 @@ def render_tool_call_result(tool_name: str, result: str, elapsed: float) -> None
 
 
 def render_tool_error(tool_name: str, error: str) -> None:
-    """Show a tool error."""
+    """Show a tool error with professional label."""
+    label, _ = _tool_display(tool_name)
     console.print(
-        f"  [{THEME['error']}]✗ {tool_name} failed:[/{THEME['error']}] "
+        f"  [{THEME['error']}]✗ {label} failed:[/{THEME['error']}] "
         f"[{THEME['text_dim']}]{error[:200]}[/{THEME['text_dim']}]"
     )
 
@@ -377,10 +376,10 @@ def render_info(msg: str) -> None:
 
 
 def render_thinking() -> None:
-    """Show a thinking indicator."""
+    """Show a polished thinking indicator."""
     console.print(
         f"  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
-        f"[{THEME['text_dim']}]Thinking…[/{THEME['text_dim']}]",
+        f"[italic {THEME['text_dim']}]Reasoning…[/italic {THEME['text_dim']}]",
         end="\r",
     )
 
@@ -419,28 +418,122 @@ def render_goodbye() -> None:
     console.print()
 
 
+# ---------------------------------------------------------------------------
+# Tool Display System — human-readable labels, icons, and smart summaries
+# ---------------------------------------------------------------------------
+
+# Maps raw tool function names to (Human Label, Icon)
+_TOOL_DISPLAY: dict[str, tuple[str, str]] = {
+    # File operations
+    "read_file":    ("Reading file",          "📄"),
+    "write_file":   ("Writing file",          "✏️"),
+    "edit_file":    ("Editing file",           "🔧"),
+    "patch_file":   ("Patching file",          "🩹"),
+    # Shell
+    "bash":         ("Running command",        "⚡"),
+    # Search & discovery
+    "glob":         ("Finding files",          "📂"),
+    "grep":         ("Searching code",         "🔍"),
+    "list_dir":     ("Listing directory",      "📁"),
+    "web_search":   ("Searching the web",      "🌐"),
+    # CVC Time Machine
+    "cvc_status":   ("Checking CVC status",    "📊"),
+    "cvc_log":      ("Viewing commit history", "📜"),
+    "cvc_commit":   ("Saving checkpoint",      "💾"),
+    "cvc_branch":   ("Creating branch",        "🌿"),
+    "cvc_restore":  ("Time-traveling",         "⏪"),
+    "cvc_merge":    ("Merging branches",       "🔀"),
+    "cvc_search":   ("Searching history",      "🔮"),
+    "cvc_diff":     ("Comparing contexts",     "📐"),
+}
+
+
+def _tool_display(name: str) -> tuple[str, str]:
+    """Return (human_label, icon) for a tool name."""
+    return _TOOL_DISPLAY.get(name, (name, "🔧"))
+
+
 def _tool_icon(name: str) -> str:
-    """Get an icon for a tool."""
-    icons = {
-        "read_file": "📄",
-        "write_file": "✏️",
-        "edit_file": "🔧",
-        "patch_file": "🩹",
-        "bash": "💻",
-        "glob": "🔍",
-        "grep": "🔎",
-        "list_dir": "📁",
-        "web_search": "🌐",
-        "cvc_status": "📊",
-        "cvc_log": "📜",
-        "cvc_commit": "💾",
-        "cvc_branch": "🌿",
-        "cvc_restore": "⏪",
-        "cvc_merge": "🔀",
-        "cvc_search": "🔮",
-        "cvc_diff": "📐",
-    }
-    return icons.get(name, "🔧")
+    """Get an icon for a tool (legacy helper)."""
+    _, icon = _tool_display(name)
+    return icon
+
+
+def _smart_result_summary(tool_name: str, result: str) -> str:
+    """
+    Build a smart, human-readable result summary based on the tool type.
+    Instead of showing raw output, show meaningful context.
+    """
+    if not result:
+        return ""
+
+    lines = [l.strip() for l in result.split("\n") if l.strip()]
+    if not lines:
+        return ""
+
+    first = lines[0]
+
+    if tool_name == "read_file":
+        # Extract file path & line count from typical result
+        # Result usually starts with "File: path (N lines)"
+        if first.startswith("File:"):
+            return first
+        # Count lines as fallback
+        line_count = len(lines)
+        return f"{line_count} lines read"
+
+    elif tool_name == "write_file":
+        if "Created" in first or "Wrote" in first:
+            return first[:80]
+        return "File saved successfully"
+
+    elif tool_name == "edit_file":
+        if "Applied" in first or "Edited" in first:
+            return first[:80]
+        if first.startswith("Error"):
+            return first[:80]
+        return "Edit applied"
+
+    elif tool_name == "patch_file":
+        return first[:80] if first else "Patch applied"
+
+    elif tool_name == "bash":
+        # Show first meaningful line of output, skip empties
+        output = first[:80]
+        if len(lines) > 1:
+            output += f"  (+{len(lines) - 1} more lines)"
+        return output
+
+    elif tool_name == "glob":
+        # Count matches
+        match_count = len(lines)
+        return f"{match_count} file(s) found"
+
+    elif tool_name == "grep":
+        # Result often has "Found N match(es)" or just matching lines
+        if "Found" in first and "match" in first:
+            return first[:80]
+        match_count = len(lines)
+        return f"{match_count} match(es) found"
+
+    elif tool_name == "list_dir":
+        item_count = len(lines)
+        dirs = sum(1 for l in lines if l.endswith("/"))
+        files = item_count - dirs
+        return f"{files} files, {dirs} directories"
+
+    elif tool_name == "web_search":
+        result_count = sum(1 for l in lines if l.startswith("[" ) or l.startswith("1") or l.startswith("• "))
+        if result_count:
+            return f"{result_count} results — {first[:60]}"
+        return first[:80]
+
+    elif tool_name.startswith("cvc_"):
+        # CVC tools — show the first line (usually a status or hash)
+        return first[:80]
+
+    # Fallback: first meaningful line
+    return first[:80]
 
 
 # ---------------------------------------------------------------------------
