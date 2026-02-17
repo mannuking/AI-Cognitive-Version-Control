@@ -708,6 +708,31 @@ class AgentSession:
                 else:
                     render_error(result.message)
 
+        elif cmd == "/checkout":
+            if not arg:
+                render_error("Usage: /checkout <branch_name>")
+            else:
+                try:
+                    # Get all available branches
+                    branches = self.engine.db.index.list_branches()
+                    branch_names = [b.name for b in branches]
+                    
+                    if arg not in branch_names:
+                        render_error(f"Branch '{arg}' not found. Available branches:\n  " + "\n  ".join(branch_names))
+                        return
+                    
+                    # Switch to the branch
+                    branch_ptr = self.engine.db.index.branch_pointer(arg)
+                    if branch_ptr:
+                        self.engine._active_branch = arg
+                        self.engine.db.index.set_active_branch(arg)
+                        render_success(f"Switched to branch '{arg}'")
+                        self._rebuild_system_prompt()
+                    else:
+                        render_error(f"Failed to switch to branch '{arg}'")
+                except Exception as e:
+                    render_error(f"Failed to checkout branch: {e}")
+
         elif cmd == "/restore":
             if not arg:
                 render_error("Usage: /restore <commit_hash>")
@@ -789,6 +814,15 @@ class AgentSession:
             else:
                 await self._handle_web_search(arg)
 
+        elif cmd == "/checkout":
+            if not arg:
+                render_error("Usage: /checkout <branch_name>")
+            else:
+                self._handle_checkout_command(arg)
+
+        elif cmd == "/branches":
+            self._handle_branches_command()
+
         elif cmd == "/git":
             self._handle_git_command(arg)
 
@@ -803,6 +837,18 @@ class AgentSession:
 
         elif cmd == "/memory":
             self._handle_memory()
+
+        elif cmd == "/files":
+            self._handle_files_command(arg)
+
+        elif cmd == "/summary":
+            self._handle_summary_command()
+
+        elif cmd == "/diff":
+            self._handle_diff_command(arg)
+
+        elif cmd == "/continue":
+            self._handle_continue_command()
 
         else:
             render_error(f"Unknown command: {cmd}. Type /help for available commands.")
@@ -947,6 +993,226 @@ class AgentSession:
             render_memory(memory)
         except Exception as e:
             render_error(f"Failed to load memory: {e}")
+
+    def _handle_files_command(self, arg: str | None = None) -> None:
+        """List files in the workspace with optional filtering."""
+        try:
+            from pathlib import Path
+            import os
+            
+            workspace = self.workspace or Path.cwd()
+            
+            # Build exclude list
+            exclude_dirs = {'.git', '.cvc', '__pycache__', '.pytest_cache', 'node_modules', '.venv', 'env', 'dist', 'build', '.egg-info'}
+            exclude_extensions = {'.pyc', '.pyo', '.so', '.dylib', '.dll', '.exe'}
+            
+            files_found = []
+            
+            for root, dirs, files in os.walk(workspace):
+                # Filter out excluded directories
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                
+                for file in files:
+                    # Skip excluded extensions
+                    if any(file.endswith(ext) for ext in exclude_extensions):
+                        continue
+                    
+                    full_path = Path(root) / file
+                    rel_path = full_path.relative_to(workspace)
+                    
+                    # Filter by pattern if provided
+                    if arg and arg.lower() not in str(rel_path).lower():
+                        continue
+                    
+                    files_found.append(str(rel_path))
+            
+            if not files_found:
+                render_info("No files found" + (f" matching '{arg}'" if arg else ""))
+                return
+            
+            # Sort and display
+            files_found.sort()
+            
+            from rich.panel import Panel
+            file_list = "\n".join([f"  {f}" for f in files_found[:50]])
+            if len(files_found) > 50:
+                file_list += f"\n  ... and {len(files_found) - 50} more files"
+            
+            console.print(Panel(
+                file_list,
+                title=f"[bold]Files in {self.workspace.name}[/bold] ({len(files_found)} total)",
+                border_style=THEME['primary'],
+                padding=(1, 2)
+            ))
+        except Exception as e:
+            render_error(f"Failed to list files: {e}")
+
+    def _handle_summary_command(self) -> None:
+        """Get a summary of the codebase structure."""
+        try:
+            from pathlib import Path
+            import os
+            
+            workspace = self.workspace or Path.cwd()
+            
+            exclude_dirs = {'.git', '.cvc', '__pycache__', '.pytest_cache', 'node_modules', '.venv', 'env', 'dist', 'build', '.egg-info'}
+            
+            # Count files by type
+            file_counts = {}
+            total_size = 0
+            total_lines = 0
+            
+            for root, dirs, files in os.walk(workspace):
+                dirs[:] = [d for d in dirs if d not in exclude_dirs]
+                
+                for file in files:
+                    full_path = Path(root) / file
+                    ext = full_path.suffix or "no_ext"
+                    
+                    file_counts[ext] = file_counts.get(ext, 0) + 1
+                    
+                    try:
+                        size = full_path.stat().st_size
+                        total_size += size
+                        
+                        # Count lines for text files
+                        if ext in {'.py', '.ts', '.js', '.go', '.rs', '.java', '.c', '.cpp', '.h', '.md', '.txt', '.json', '.yaml', '.yml'}:
+                            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                total_lines += len(f.readlines())
+                    except:
+                        pass
+            
+            # Format output
+            summary_lines = []
+            summary_lines.append(f"[bold]📁 {self.workspace.name}[/bold]")
+            summary_lines.append(f"  Total size: {total_size / (1024*1024):.1f} MB")
+            summary_lines.append(f"  Total lines of code: {total_lines:,}")
+            summary_lines.append("")
+            summary_lines.append("[bold]File Types:[/bold]")
+            
+            for ext, count in sorted(file_counts.items(), key=lambda x: x[1], reverse=True)[:15]:
+                summary_lines.append(f"  {ext:15} {count:5} files")
+            
+            from rich.panel import Panel
+            console.print(Panel(
+                "\n".join(summary_lines),
+                title="[bold]Codebase Summary[/bold]",
+                border_style=THEME['primary'],
+                padding=(1, 2)
+            ))
+        except Exception as e:
+            render_error(f"Failed to summarize codebase: {e}")
+
+    def _handle_diff_command(self, arg: str | None = None) -> None:
+        """Show recent diffs or specific file diffs."""
+        try:
+            from cvc.agent.git_integration import git_diff_summary
+            
+            # Get diffs for workspace
+            diffs = git_diff_summary(self.workspace or Path.cwd())
+            if not diffs or diffs.strip() == "":
+                render_info("No recent changes found.")
+                return
+            
+            from rich.syntax import Syntax
+            from rich.panel import Panel
+            
+            # Show as formatted output
+            console.print(Panel(
+                diffs,
+                title="[bold]Git Changes[/bold]",
+                border_style=THEME['primary'],
+                padding=(1, 2)
+            ))
+        except Exception as e:
+            render_error(f"Failed to show diffs: {e}")
+
+    def _handle_continue_command(self) -> None:
+        """Continue with the AI from the last point in conversation."""
+        if len(self.messages) <= 2:
+            render_info("Continue: No previous conversation to continue from.")
+            return
+        
+        # Find the last user or assistant message
+        last_user_msg = None
+        for msg in reversed(self.messages[1:]):  # Skip system message
+            if msg['role'] in ('user', 'assistant'):
+                last_user_msg = msg
+                break
+        
+        if not last_user_msg:
+            render_info("Continue: No previous messages to continue from.")
+            return
+        
+        # Show last context
+        from rich.panel import Panel
+        context_preview = last_user_msg['content'][:200]
+        if len(last_user_msg['content']) > 200:
+            context_preview += "..."
+        
+        console.print(Panel(
+            f"Last {last_user_msg['role']}: {context_preview}",
+            title="[bold]Continuing from...[/bold]",
+            border_style=THEME['primary_dim'],
+            padding=(1, 2)
+        ))
+        
+        render_success("Ready to continue. Send your next message.")
+
+    def _handle_checkout_command(self, branch_name: str) -> None:
+        """Switch to an existing branch."""
+        try:
+            # Get all available branches
+            branches = self.engine.db.index.list_branches()
+            branch_names = [b.name for b in branches]
+            
+            if branch_name not in branch_names:
+                render_error(f"Branch '{branch_name}' not found. Available branches:\n  " + "\n  ".join(branch_names))
+                return
+            
+            # Switch to the branch
+            branch_ptr = self.engine.db.index.branch_pointer(branch_name)
+            if branch_ptr:
+                self.engine._active_branch = branch_name
+                self.engine.db.index.set_active_branch(branch_name)
+                render_success(f"Switched to branch '{branch_name}'")
+                self._rebuild_system_prompt()
+            else:
+                render_error(f"Failed to switch to branch '{branch_name}'")
+        except Exception as e:
+            render_error(f"Failed to checkout branch: {e}")
+
+    def _handle_branches_command(self) -> None:
+        """List all available branches."""
+        try:
+            branches = self.engine.db.index.list_branches()
+            
+            if not branches:
+                render_info("No branches found.")
+                return
+            
+            from rich.table import Table
+            
+            table = Table(
+                title="[bold]Branches[/bold]",
+                border_style=THEME['primary'],
+                show_header=True,
+                header_style=f"bold {THEME['primary_bright']}",
+            )
+            table.add_column("Branch", style=THEME['branch'], width=30)
+            table.add_column("HEAD", style=THEME['hash'], width=15)
+            table.add_column("Status", style=THEME['text_dim'])
+            
+            active = self.engine.active_branch
+            for b in branches:
+                status = "● current" if b.name == active else ""
+                head_display = b.head_hash[:12] if b.head_hash else "none"
+                table.add_row(b.name, head_display, status)
+            
+            console.print(table)
+            console.print()
+        except Exception as e:
+            render_error(f"Failed to list branches: {e}")
 
     def _save_session_memory(self) -> None:
         """Save a summary of this session to persistent memory."""
