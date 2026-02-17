@@ -673,6 +673,10 @@ class SemanticStore:
         except ImportError:
             logger.warning("chromadb not installed — Tier 3 disabled")
             self._enabled = False
+        except Exception as exc:
+            # ChromaDB crashes on Python 3.14+ due to pydantic v1 incompatibility
+            logger.warning("chromadb failed to initialise — Tier 3 disabled: %s", exc)
+            self._enabled = False
 
     @property
     def available(self) -> bool:
