@@ -174,6 +174,44 @@ MCP_TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "cvc_capture_context",
+        "description": (
+            "Manually capture conversation messages into CVC context. "
+            "Use this when IDE doesn't support automatic context capture (e.g., "
+            "GitHub Copilot). Pass the conversation history as an array of messages. "
+            "Each message should have 'role' (user/assistant/system) and 'content'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "description": "Array of conversation messages to capture.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "role": {
+                                "type": "string",
+                                "enum": ["user", "assistant", "system"],
+                                "description": "Message role",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Message content",
+                            },
+                        },
+                        "required": ["role", "content"],
+                    },
+                },
+                "commit_message": {
+                    "type": "string",
+                    "description": "Optional commit message after capturing context.",
+                },
+            },
+            "required": ["messages"],
+        },
+    },
 ]
 
 
@@ -249,6 +287,37 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
         elif tool_name == "cvc_log":
             entries = engine.log(limit=arguments.get("limit", 20))
             return {"branch": engine.active_branch, "commits": entries}
+
+        elif tool_name == "cvc_capture_context":
+            from cvc.core.models import ContextMessage
+            messages = arguments.get("messages", [])
+            captured_count = 0
+            
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if content:
+                    engine.push_message(ContextMessage(role=role, content=content))
+                    captured_count += 1
+            
+            # Auto-commit if requested
+            commit_msg = arguments.get("commit_message")
+            commit_hash = None
+            if commit_msg:
+                result = engine.commit(CVCCommitRequest(
+                    message=commit_msg,
+                    commit_type="checkpoint",
+                ))
+                if result.success:
+                    commit_hash = result.commit_hash[:12]
+            
+            return {
+                "success": True,
+                "captured_messages": captured_count,
+                "new_context_size": len(engine.context_window),
+                "commit_hash": commit_hash,
+                "message": f"Captured {captured_count} messages into CVC context.",
+            }
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}
