@@ -312,18 +312,17 @@ def render_tool_call_start(tool_name: str, args_summary: str) -> None:
 
 
 def render_tool_call_result(tool_name: str, result: str, elapsed: float) -> None:
-    """Show the result of a tool call — clean, informative one-liner."""
+    """Append result info on the SAME line as the tool start — ultra minimal."""
     elapsed_str = f"{elapsed:.1f}s" if elapsed >= 0.1 else f"{elapsed * 1000:.0f}ms"
 
-    # Build a smart summary based on the tool type
+    # Build a compact inline summary (shown in parentheses)
     summary = _smart_result_summary(tool_name, result)
+    suffix = f"  ({summary})" if summary else ""
 
     console.print(
-        f"  [{THEME['success']}]✓[/{THEME['success']}] "
-        f"[{THEME['text_dim']}]{elapsed_str}[/{THEME['text_dim']}]"
+        f"  [{THEME['success']}]\u2713[/{THEME['success']}] "
+        f"[{THEME['text_dim']}]{elapsed_str}{suffix}[/{THEME['text_dim']}]"
     )
-    if summary:
-        console.print(f"    [{THEME['text_dim']}]{summary}[/{THEME['text_dim']}]")
 
 
 def render_tool_error(tool_name: str, error: str) -> None:

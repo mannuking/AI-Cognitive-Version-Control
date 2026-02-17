@@ -473,12 +473,22 @@ class AgentLLM:
                 })
             gemini_tools = [{"functionDeclarations": declarations}]
 
+        gen_config: dict[str, Any] = {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        }
+
+        # For Gemini 2.5+ models with thinking capabilities, configure
+        # a thinking budget so internal reasoning doesn't consume the
+        # entire output token limit and leave 0 for the actual response.
+        if "2.5" in self.model or "3" in self.model:
+            gen_config["thinkingConfig"] = {
+                "thinkingBudget": min(max_tokens * 2, 16384),
+            }
+
         body: dict[str, Any] = {
             "contents": gemini_contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_tokens,
-            },
+            "generationConfig": gen_config,
         }
 
         if system_text.strip():
@@ -535,6 +545,9 @@ class AgentLLM:
         tool_calls = []
 
         for i, part in enumerate(raw_response_parts):
+            # Skip thinking parts — they're internal reasoning, not user output
+            if part.get("thought") and "text" in part:
+                continue
             if "text" in part:
                 text_parts.append(part["text"])
             elif "functionCall" in part:
@@ -571,6 +584,8 @@ class AgentLLM:
         all_raw_parts: list[dict] = []  # accumulate raw parts for thoughtSignature
         prompt_tokens = 0
         completion_tokens = 0
+        finish_reason = ""  # Track why Gemini stopped
+        has_any_content = False
 
         try:
             async with self._client.stream("POST", url, json=body) as resp:
@@ -607,16 +622,37 @@ class AgentLLM:
                     except json.JSONDecodeError:
                         continue
 
+                    # Check for API-level errors in the chunk
+                    if "error" in chunk:
+                        err = chunk["error"]
+                        err_msg = err.get("message", str(err))[:300]
+                        logger.error("Gemini API error in stream: %s", err_msg)
+                        raise RuntimeError(f"Gemini API error: {err_msg}")
+
                     # Extract candidates
                     candidates = chunk.get("candidates", [])
                     if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
+                        candidate = candidates[0]
+
+                        # Capture finishReason (only the last one matters)
+                        fr = candidate.get("finishReason", "")
+                        if fr:
+                            finish_reason = fr
+
+                        parts = candidate.get("content", {}).get("parts", [])
                         # Accumulate raw parts (preserves thoughtSignature for Gemini 3)
                         all_raw_parts.extend(parts)
                         for i, part in enumerate(parts):
+                            # Skip thought-only parts (no user-visible text)
+                            if part.get("thought") and "text" in part:
+                                # Thinking part — don't yield as text_delta
+                                # but DO keep in all_raw_parts for context
+                                continue
                             if "text" in part:
+                                has_any_content = True
                                 yield StreamEvent(type="text_delta", text=part["text"])
                             elif "functionCall" in part:
+                                has_any_content = True
                                 fc = part["functionCall"]
                                 tc = ToolCall(
                                     id=f"call_{len(tool_calls)}",
@@ -635,11 +671,30 @@ class AgentLLM:
         except httpx.HTTPStatusError as e:
             raise RuntimeError(f"Gemini streaming error: {e}") from e
 
+        # Detect blocked / empty responses and raise actionable errors
+        if not has_any_content and finish_reason:
+            _BLOCKED_REASONS = {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT"}
+            if finish_reason in _BLOCKED_REASONS:
+                raise RuntimeError(
+                    f"Gemini blocked the response (reason: {finish_reason}). "
+                    f"This usually happens with very large tool outputs. "
+                    f"Try a shorter query or use a different model."
+                )
+            elif finish_reason == "MAX_TOKENS":
+                logger.warning("Gemini hit MAX_TOKENS with 0 visible output — "
+                               "thinking may have consumed the entire budget.")
+                # Don't raise — let the retry logic in the agentic loop handle it
+            elif finish_reason not in ("STOP", ""):
+                logger.warning("Gemini finished with reason '%s' and 0 content", finish_reason)
+
         yield StreamEvent(
             type="done",
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            _provider_meta={"gemini_parts": all_raw_parts} if all_raw_parts else {},
+            _provider_meta={
+                "gemini_parts": all_raw_parts if all_raw_parts else [],
+                "finish_reason": finish_reason,
+            },
         )
 
     @staticmethod

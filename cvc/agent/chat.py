@@ -440,10 +440,18 @@ class AgentSession:
         if not existing:
             return
 
-        # Separate user/assistant messages from system/tool messages
+        # Only restore user/assistant messages.
+        # Tool messages CANNOT be restored as role="tool" because the
+        # preceding assistant message lacks the structured tool_calls
+        # field (CVC stores it as plain text like "[Tool calls: ...]").
+        # Injecting orphan tool results breaks Gemini (functionResponse
+        # without functionCall) and Anthropic (tool_result without
+        # tool_use), causing 0 output tokens or API errors.
+        # Tool result info is already captured in the assistant message
+        # summaries anyway, so no context is lost.
         conversation_msgs = [
             m for m in existing
-            if m.role in ("user", "assistant", "tool")
+            if m.role in ("user", "assistant")
         ]
 
         if not conversation_msgs:
@@ -480,12 +488,7 @@ class AgentSession:
 
             # Inject recent messages as actual conversation turns
             for msg in recent:
-                entry: dict[str, Any] = {"role": msg.role, "content": msg.content}
-                if msg.name:
-                    entry["name"] = msg.name
-                if msg.tool_call_id:
-                    entry["tool_call_id"] = msg.tool_call_id
-                self.messages.append(entry)
+                self.messages.append({"role": msg.role, "content": msg.content})
         else:
             # Small enough to inject everything
             self.messages.append({
@@ -497,12 +500,7 @@ class AgentSession:
                 ),
             })
             for msg in conversation_msgs:
-                entry = {"role": msg.role, "content": msg.content}
-                if msg.name:
-                    entry["name"] = msg.name
-                if msg.tool_call_id:
-                    entry["tool_call_id"] = msg.tool_call_id
-                self.messages.append(entry)
+                self.messages.append({"role": msg.role, "content": msg.content})
 
     async def run_turn(self, user_input: str) -> None:
         """
@@ -539,6 +537,8 @@ class AgentSession:
         """Core agentic loop — streams LLM responses, handles tool calls."""
         # Agentic loop
         iterations = 0
+        _empty_retries = 0  # Track retries for empty responses
+        _MAX_EMPTY_RETRIES = 1
         while iterations < MAX_TOOL_ITERATIONS:
             iterations += 1
 
@@ -552,15 +552,20 @@ class AgentSession:
                 completion_tokens = 0
                 cache_read_tokens = 0
                 gemini_parts = None
+                finish_reason = ""
 
                 streamer = StreamingRenderer()
                 streaming_started = False
+
+                # Use higher max_tokens for post-tool-call iterations
+                # because the model needs room for thinking + analysis
+                max_tok = 16384 if iterations > 1 else 8192
 
                 async for event in self.llm.chat_stream(
                     messages=self.messages,
                     tools=AGENT_TOOLS,
                     temperature=0.7,
-                    max_tokens=8192,
+                    max_tokens=max_tok,
                 ):
                     if event.type == "text_delta":
                         if not streaming_started:
@@ -580,6 +585,7 @@ class AgentSession:
                         prompt_tokens = event.prompt_tokens
                         completion_tokens = event.completion_tokens
                         cache_read_tokens = event.cache_read_tokens
+                        finish_reason = event._provider_meta.get("finish_reason", "")
                         if event._provider_meta.get("gemini_parts"):
                             gemini_parts = event._provider_meta["gemini_parts"]
 
@@ -652,12 +658,20 @@ class AgentSession:
                 tool_results = await self._execute_tools_parallel(tool_calls)
 
                 for tc, result in zip(tool_calls, tool_results):
+                    # Truncate tool results for the LLM context to prevent
+                    # overwhelming the model (especially Gemini thinking models
+                    # which can exhaust output budgets on massive inputs).
+                    # CVC storage uses a separate, smaller limit.
+                    llm_result = result[:15000] if len(result) > 15000 else result
+                    if len(result) > 15000:
+                        llm_result += f"\n\n... (truncated, {len(result) - 15000:,} chars omitted for LLM)"
+
                     # Add tool result to conversation
                     self.messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": tc.name,
-                        "content": result,
+                        "content": llm_result,
                     })
 
                     # ── Push tool result to CVC context ──
@@ -681,6 +695,20 @@ class AgentSession:
 
             else:
                 # No tool calls — this is a final text response
+
+                # ── Empty response detection & retry ──
+                # If the model returned 0 output tokens (common with Gemini
+                # thinking models exhausting their budget), retry once with
+                # a higher token limit before giving up.
+                if not response_text and not tool_calls and _empty_retries < _MAX_EMPTY_RETRIES:
+                    _empty_retries += 1
+                    # Silent retry — don't alarm the user
+                    logger.debug(
+                        "Empty response from LLM (finish_reason=%s), retrying (%d/%d)",
+                        finish_reason or "unknown", _empty_retries, _MAX_EMPTY_RETRIES,
+                    )
+                    continue
+
                 if response_text:
                     # Already rendered via streaming above
                     # Add to conversation history
