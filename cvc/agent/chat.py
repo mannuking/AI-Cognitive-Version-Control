@@ -1851,8 +1851,16 @@ async def _run_agent_async(
         memories = get_relevant_memories(str(workspace), limit=3)
         if memories and not _session_resume:
             recent = memories[-1]
+            # Format the date nicely: "2026-02-17T20:23" → "Feb 17, 2026 at 20:23"
+            raw_date = recent.get('date', '?')[:16]
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(raw_date)
+                nice_date = dt.strftime("%b %d, %Y at %H:%M")
+            except Exception:
+                nice_date = raw_date.replace("T", " at ")
             render_info(
-                f"Last session: {recent.get('date', '?')[:16]} — "
+                f"Last session: {nice_date} — "
                 f"{recent.get('summary', '')[:80]}"
             )
             console.print()
