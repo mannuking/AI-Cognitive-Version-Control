@@ -400,6 +400,10 @@ class CvcGroup(click.Group):
             ("context --show", "Display stored conversation content"),
             ("export --markdown", "Export conversation as shareable Markdown"),
             ("inject <project>", "Cross-project context transfer"),
+            ("diff <hash1> <hash2>", "Knowledge / decision diff between commits"),
+            ("stats", "Analytics dashboard (tokens, costs, patterns)"),
+            ("compact --smart", "AI-powered context compression"),
+            ("timeline", "ASCII timeline of all AI interactions"),
             ("sessions", "View Time Machine session history"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
@@ -2437,6 +2441,487 @@ def inject(source_project: str, query: str, limit: int) -> None:
             "• Try broader search terms\n"
             "• Check with: [bold]cd <source> && cvc log[/bold]"
         )
+
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# diff (knowledge / decision diff between commits)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("hash_a")
+@click.argument("hash_b", required=False, default=None)
+def diff(hash_a: str, hash_b: str | None) -> None:
+    """Show knowledge/decision differences between two commits.
+
+    \b
+    Compare what changed between two cognitive commits — messages added
+    or removed, reasoning trace changes, source file changes, and
+    metadata differences.
+
+    If only one hash is given, compares against HEAD.
+
+    \b
+    Examples:
+      cvc diff abc123 def456       # Compare two commits
+      cvc diff abc123              # Compare commit against HEAD
+    """
+    engine, db = _get_engine()
+
+    try:
+        result = engine.diff(hash_a, hash_b)
+    except ValueError as exc:
+        _error(str(exc))
+        _hint("Use [bold]cvc log[/bold] to find valid commit hashes.")
+        db.close()
+        return
+
+    ca = result["commit_a"]
+    cb = result["commit_b"]
+
+    console.print()
+    console.print(
+        Panel(
+            f"  [dim]From[/dim]  [#CCAA44]{ca['short']}[/#CCAA44]  {ca['message'][:60]}\n"
+            f"  [dim]To  [/dim]  [#CCAA44]{cb['short']}[/#CCAA44]  {cb['message'][:60]}",
+            border_style="#5C1010",
+            title="[bold #CC3333]◈ Cognitive Diff[/bold #CC3333]",
+            padding=(1, 2),
+        )
+    )
+
+    # Messages diff
+    msgs = result["messages"]
+    msg_table = Table(
+        box=box.SIMPLE,
+        border_style="dim",
+        show_header=False,
+        padding=(0, 1),
+    )
+    msg_table.add_column("", width=3)
+    msg_table.add_column("Detail")
+
+    msg_table.add_row("[dim]Common[/dim]", f"{msgs['common_count']} messages unchanged")
+    msg_table.add_row("[#55AA55]+[/#55AA55]", f"[#55AA55]{msgs['added_count']} messages added[/#55AA55]")
+    msg_table.add_row("[red]−[/red]", f"[red]{msgs['removed_count']} messages removed[/red]")
+
+    console.print(
+        Panel(msg_table, border_style="dim", title="[bold]Messages[/bold]", padding=(0, 1))
+    )
+
+    # Show added messages (preview)
+    if msgs["added"]:
+        console.print("  [bold #55AA55]+ Added messages:[/bold #55AA55]")
+        for m in msgs["added"][:5]:
+            preview = m["content"][:120].replace("\n", " ")
+            console.print(f"    [#55AA55]+ [{m['role']}][/#55AA55] {preview}")
+        if len(msgs["added"]) > 5:
+            console.print(f"    [dim]… and {len(msgs['added']) - 5} more[/dim]")
+        console.print()
+
+    if msgs["removed"]:
+        console.print("  [bold red]− Removed messages:[/bold red]")
+        for m in msgs["removed"][:5]:
+            preview = m["content"][:120].replace("\n", " ")
+            console.print(f"    [red]− [{m['role']}][/red] {preview}")
+        if len(msgs["removed"]) > 5:
+            console.print(f"    [dim]… and {len(msgs['removed']) - 5} more[/dim]")
+        console.print()
+
+    # Source files
+    sf = result["source_files"]
+    if sf["added"] or sf["removed"] or sf["modified"]:
+        console.print("  [bold]Source Files:[/bold]")
+        for f in sf["added"]:
+            console.print(f"    [#55AA55]+ {f}[/#55AA55]")
+        for f in sf["removed"]:
+            console.print(f"    [red]− {f}[/red]")
+        for f in sf["modified"]:
+            console.print(f"    [#CCAA44]~ {f}[/#CCAA44]")
+        console.print()
+
+    # Reasoning trace
+    rt = result["reasoning_trace"]
+    if rt["changed"]:
+        console.print("  [bold #CCAA44]⚡ Reasoning trace changed[/bold #CCAA44]")
+        if rt["from"]:
+            console.print(f"    [dim]From:[/dim] {rt['from'][:100]}…")
+        if rt["to"]:
+            console.print(f"    [dim]To:  [/dim] {rt['to'][:100]}…")
+        console.print()
+
+    # Metadata changes
+    meta = result["metadata_changes"]
+    if meta:
+        console.print("  [bold]Metadata changes:[/bold]")
+        for field, vals in meta.items():
+            console.print(
+                f"    {field}: [red]{vals['from']}[/red] → [#55AA55]{vals['to']}[/#55AA55]"
+            )
+        console.print()
+
+    # Token delta
+    td = result["token_delta"]
+    if td > 0:
+        console.print(f"  [dim]Token delta:[/dim] [#55AA55]+{td}[/#55AA55]")
+    elif td < 0:
+        console.print(f"  [dim]Token delta:[/dim] [red]{td}[/red]")
+    else:
+        console.print(f"  [dim]Token delta:[/dim] 0 (unchanged)")
+    console.print()
+
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# stats (analytics dashboard)
+# ---------------------------------------------------------------------------
+
+@main.command()
+def stats() -> None:
+    """Show an analytics dashboard for your CVC project.
+
+    \b
+    Displays aggregate statistics across all commits:
+    total tokens, costs, message counts, commit types,
+    providers/models used, most-discussed files, and timing patterns.
+
+    \b
+    Examples:
+      cvc stats
+    """
+    engine, db = _get_engine()
+    result = engine.stats()
+
+    if result.get("total_commits", 0) == 0:
+        _warn("No commits found. Create some commits first.")
+        db.close()
+        return
+
+    console.print()
+
+    # Header
+    console.print(
+        Panel(
+            f"  [dim]Commits[/dim]      [bold]{result['total_commits']}[/bold]\n"
+            f"  [dim]Messages[/dim]     [bold]{result['total_messages']}[/bold]\n"
+            f"  [dim]Tokens[/dim]       [bold]{result['total_tokens']:,}[/bold]\n"
+            f"  [dim]Est. Cost[/dim]    [bold]${result['estimated_cost_usd']:.4f}[/bold]\n"
+            f"  [dim]Avg Size[/dim]     [bold]{result['average_commit_size']:.1f}[/bold] messages/commit\n"
+            f"  [dim]Branch[/dim]       [bold]{result['current_branch']}[/bold] ({result['current_context_messages']} msgs in context)",
+            border_style="#5C1010",
+            title="[bold #CC3333]📊 CVC Analytics Dashboard[/bold #CC3333]",
+            padding=(1, 2),
+        )
+    )
+
+    # Time span
+    ts = result.get("time_span", {})
+    if ts:
+        console.print(
+            f"  [dim]Period[/dim]    {ts.get('first_commit', '?')} → {ts.get('last_commit', '?')}"
+            f"  ({ts.get('span_days', 0)} days, {ts.get('commits_per_day', 0)} commits/day)"
+        )
+        console.print()
+
+    # Tables side by side
+    # Commit types
+    ct = result.get("commit_types", {})
+    if ct:
+        type_table = Table(
+            box=box.SIMPLE,
+            border_style="dim",
+            title="[bold]Commit Types[/bold]",
+            title_style="bold",
+            show_header=True,
+            header_style="dim",
+        )
+        type_table.add_column("Type", style="bold")
+        type_table.add_column("Count", justify="right")
+        for t, c in ct.items():
+            type_table.add_row(t, str(c))
+        console.print(type_table)
+
+    # Messages by role
+    mr = result.get("messages_by_role", {})
+    if mr:
+        role_table = Table(
+            box=box.SIMPLE,
+            border_style="dim",
+            title="[bold]Messages by Role[/bold]",
+            title_style="bold",
+            show_header=True,
+            header_style="dim",
+        )
+        role_table.add_column("Role", style="bold")
+        role_table.add_column("Count", justify="right")
+        for r, c in mr.items():
+            role_table.add_row(r, str(c))
+        console.print(role_table)
+
+    # Providers & Models
+    providers = result.get("providers", {})
+    models = result.get("models", {})
+    if providers or models:
+        pm_table = Table(
+            box=box.SIMPLE,
+            border_style="dim",
+            title="[bold]Providers & Models[/bold]",
+            title_style="bold",
+            show_header=True,
+            header_style="dim",
+        )
+        pm_table.add_column("Provider/Model", style="bold")
+        pm_table.add_column("Commits", justify="right")
+        for p, c in providers.items():
+            pm_table.add_row(f"[#CC3333]{p}[/#CC3333]", str(c))
+        for m, c in models.items():
+            pm_table.add_row(f"  └ {m}", str(c))
+        console.print(pm_table)
+
+    # Branches
+    br = result.get("branches", {})
+    if br:
+        console.print(
+            f"  [bold]Branches:[/bold] {br['total']} total "
+            f"({br['active']} active, {br['merged']} merged)"
+        )
+        branch_names = br.get("names", [])
+        if branch_names:
+            for bn in branch_names[:10]:
+                marker = " [#55AA55]◄[/#55AA55]" if bn == result.get("current_branch") else ""
+                console.print(f"    [dim]→[/dim] {bn}{marker}")
+        console.print()
+
+    # Top files
+    tf = result.get("top_files", {})
+    if tf:
+        file_table = Table(
+            box=box.SIMPLE,
+            border_style="dim",
+            title="[bold]Most Referenced Files[/bold]",
+            title_style="bold",
+            show_header=True,
+            header_style="dim",
+        )
+        file_table.add_column("File", style="bold")
+        file_table.add_column("Refs", justify="right")
+        for f, c in list(tf.items())[:10]:
+            file_table.add_row(f, str(c))
+        console.print(file_table)
+
+    # Peak hours
+    ph = result.get("peak_hours", [])
+    if ph:
+        console.print("  [bold]Peak Coding Hours:[/bold]")
+        for item in ph:
+            h = item["hour"]
+            c = item["commits"]
+            bar = "█" * min(c, 30)
+            console.print(f"    [dim]{h:02d}:00[/dim]  {bar} ({c})")
+        bd = result.get("busiest_day", "N/A")
+        console.print(f"    [dim]Busiest day:[/dim] [bold]{bd}[/bold]")
+        console.print()
+
+    # Tags
+    tags = result.get("top_tags", {})
+    if tags:
+        tag_str = ", ".join(f"[#CCAA44]{t}[/#CCAA44]({c})" for t, c in tags.items())
+        console.print(f"  [bold]Tags:[/bold] {tag_str}")
+        console.print()
+
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# compact (AI-powered context compression)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--smart/--no-smart", default=True, help="Use smart heuristic compression (default: smart).")
+@click.option("--keep-recent", "-k", default=10, type=int, help="Number of recent messages to always keep.")
+@click.option("--target-ratio", "-r", default=0.5, type=float, help="Target compression ratio (0.0-1.0).")
+def compact(smart: bool, keep_recent: int, target_ratio: float) -> None:
+    """Compress your context window to reduce token usage.
+
+    \b
+    Smart compression preserves important messages (decisions, code,
+    architecture notes) while summarising routine conversation.
+
+    \b
+    Modes:
+      --smart       Heuristic analysis: keeps decisions + code + recent (default)
+      --no-smart    Simple truncation: keeps only the N most recent messages
+
+    \b
+    Examples:
+      cvc compact --smart                    # Smart compression (default)
+      cvc compact --no-smart --keep-recent 5 # Keep only last 5 messages
+      cvc compact -k 20                      # Keep 20 recent messages
+    """
+    engine, db = _get_engine()
+
+    original = len(engine.context_window)
+    original_tokens = sum(len(m.content.split()) for m in engine.context_window)
+
+    console.print()
+    console.print(
+        f"  [bold #CC3333]Compacting context[/bold #CC3333]\n"
+        f"  [dim]Mode[/dim]      {'Smart (heuristic)' if smart else 'Simple truncation'}\n"
+        f"  [dim]Current[/dim]   {original} messages (~{original_tokens} tokens)\n"
+        f"  [dim]Keep[/dim]      {keep_recent} recent messages"
+    )
+    console.print()
+
+    result = engine.compact(smart=smart, keep_recent=keep_recent, target_ratio=target_ratio)
+
+    if result.success:
+        detail = result.detail
+        ratio = detail.get("compression_ratio", 1.0)
+        pct = (1 - ratio) * 100
+
+        console.print(
+            Panel(
+                f"  [dim]Before[/dim]       {detail.get('original_messages', '?')} messages ({detail.get('original_tokens', '?')} tokens)\n"
+                f"  [dim]After[/dim]        {detail.get('final_messages', '?')} messages ({detail.get('final_tokens', '?')} tokens)\n"
+                f"  [dim]Saved[/dim]        [bold #55AA55]{pct:.0f}%[/bold #55AA55] token reduction\n"
+                f"  [dim]Mode[/dim]         {detail.get('mode', '?')}\n"
+                + (
+                    f"  [dim]Preserved[/dim]    {detail.get('important_preserved', 0)} important messages\n"
+                    f"  [dim]Summarised[/dim]   {detail.get('summarised_chunks', 0)} chunks\n"
+                    if detail.get("mode") == "smart" else ""
+                )
+                + (
+                    f"  [dim]Commit[/dim]       [#CCAA44]{(result.commit_hash or '')[:12]}[/#CCAA44]"
+                    if result.commit_hash else ""
+                ),
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Compacted[/bold #55AA55]",
+                padding=(1, 2),
+            )
+        )
+        _hint("Your context window is now smaller. Future LLM calls will use fewer tokens.")
+    else:
+        _warn(result.message)
+
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# timeline (ASCII timeline of all AI interactions)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("-n", "--limit", default=30, type=int, help="Maximum commits to show.")
+def timeline(limit: int) -> None:
+    """Show an ASCII timeline of all AI interactions.
+
+    \b
+    Displays a beautiful visual timeline across all branches,
+    showing commits, merges, branch points, and provider/model info.
+
+    \b
+    Examples:
+      cvc timeline             # Show last 30 commits
+      cvc timeline -n 50       # Show last 50 commits
+    """
+    engine, db = _get_engine()
+    result = engine.timeline(limit=limit)
+
+    if result.get("total_commits", 0) == 0:
+        _warn("No commits found.")
+        db.close()
+        return
+
+    console.print()
+
+    # Branch legend
+    branches = result.get("branches", [])
+    if branches:
+        branch_str = "  ".join(
+            f"[bold {'#55AA55' if b['is_active'] else '#CCAA44'}]{b['name']}[/bold {'#55AA55' if b['is_active'] else '#CCAA44'}]"
+            f"{'◄' if b['is_active'] else ''}"
+            for b in branches
+        )
+        console.print(f"  [dim]Branches:[/dim] {branch_str}")
+        console.print()
+
+    # Timeline
+    events = result.get("events", [])
+
+    # Assign branch colors for visual distinction
+    branch_colors = ["#CC3333", "#55AA55", "#CCAA44", "#5599CC", "#AA55AA", "#CC8844"]
+    branch_color_map: dict[str, str] = {}
+    for i, b in enumerate(branches):
+        branch_color_map[b["name"]] = branch_colors[i % len(branch_colors)]
+
+    TYPE_ICONS = {
+        "checkpoint": "●",
+        "analysis": "◎",
+        "generation": "◉",
+        "rollback": "↺",
+        "merge": "⊕",
+        "anchor": "◆",
+    }
+
+    for event in events:
+        icon = TYPE_ICONS.get(event["type"], event.get("icon", "●"))
+        primary_branch = event["branches"][0] if event["branches"] else "?"
+        color = branch_color_map.get(primary_branch, "#CC3333")
+
+        # Branch indicator line
+        if event.get("is_merge"):
+            parents = event.get("parents", [])
+            console.print(
+                f"  [{color}]  ╔═══╗[/{color}]"
+            )
+            line_prefix = f"  [{color}]  ║ {icon} ║[/{color}]"
+        elif event.get("is_branch_point"):
+            line_prefix = f"  [{color}]  ├─{icon}─┤[/{color}]"
+        else:
+            line_prefix = f"  [{color}]  │ {icon} │[/{color}]"
+
+        # Build the main line
+        short = event["short"]
+        msg = event["message"][:50]
+        time_str = event["time_str"]
+        provider = event.get("provider", "")
+        model = event.get("model", "")
+        pm_str = ""
+        if provider and model:
+            pm_str = f" [dim]({provider}/{model})[/dim]"
+        elif provider:
+            pm_str = f" [dim]({provider})[/dim]"
+
+        tags = event.get("tags", [])
+        tag_str = ""
+        if tags:
+            tag_str = " " + " ".join(f"[#CCAA44]#{t}[/#CCAA44]" for t in tags[:3])
+
+        branch_labels = ""
+        if len(event["branches"]) > 1:
+            branch_labels = " [dim](" + ", ".join(event["branches"]) + ")[/dim]"
+
+        console.print(
+            f"{line_prefix}  [#CCAA44]{short}[/#CCAA44]  {msg}"
+            f"  [dim]{time_str}[/dim]{pm_str}{tag_str}{branch_labels}"
+        )
+
+        if event.get("is_merge"):
+            console.print(
+                f"  [{color}]  ╚═══╝[/{color}]"
+            )
+
+    # Footer connector
+    last_event = events[-1] if events else None
+    if last_event:
+        primary = last_event["branches"][0] if last_event["branches"] else "?"
+        color = branch_color_map.get(primary, "#CC3333")
+        console.print(f"  [{color}]  │   │[/{color}]")
+        console.print(f"  [{color}]  ╰───╯[/{color}]  [dim]({result['total_commits']} commits total)[/dim]")
 
     console.print()
     db.close()

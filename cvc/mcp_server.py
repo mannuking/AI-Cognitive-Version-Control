@@ -516,6 +516,86 @@ MCP_TOOLS = [
             "required": ["source_project", "query"],
         },
     },
+    {
+        "name": "cvc_diff",
+        "description": (
+            "Compare two cognitive commits and show knowledge/decision differences. "
+            "Shows added/removed messages, reasoning trace changes, source file changes, "
+            "metadata differences, and token delta. If only one hash is given, compares against HEAD."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "hash_a": {
+                    "type": "string",
+                    "description": "First commit hash (full or short prefix).",
+                },
+                "hash_b": {
+                    "type": "string",
+                    "description": "Second commit hash. If omitted, compares against HEAD.",
+                },
+            },
+            "required": ["hash_a"],
+        },
+    },
+    {
+        "name": "cvc_stats",
+        "description": (
+            "Show aggregated analytics across all CVC commits: total tokens, "
+            "estimated costs, message counts by role, commit types, providers/models used, "
+            "most-discussed source files, branch activity, and timing patterns."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "cvc_compact",
+        "description": (
+            "Compress the context window to reduce token usage. "
+            "Smart mode preserves important messages (decisions, code, architecture) "
+            "while summarising routine conversation. Simple mode truncates to recent messages. "
+            "Auto-commits the compacted state."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "smart": {
+                    "type": "boolean",
+                    "description": "Use smart heuristic compression (default: true). Set false for simple truncation.",
+                },
+                "keep_recent": {
+                    "type": "integer",
+                    "description": "Number of recent messages to always keep. Default: 10.",
+                },
+                "target_ratio": {
+                    "type": "number",
+                    "description": "Target compression ratio (0.0-1.0). Default: 0.5.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "cvc_timeline",
+        "description": (
+            "Show a timeline of all cognitive commits across all branches. "
+            "Includes commit types, merge points, branch points, provider/model info, "
+            "and timing. Returns structured data for rendering a visual timeline."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of commits to include. Default: 50.",
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 
@@ -824,6 +904,41 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
             source_path = Path(source_project).resolve()
             result = engine.inject_from_project(source_path, query, limit=limit)
             return result.model_dump()
+
+        elif tool_name == "cvc_diff":
+            hash_a = arguments.get("hash_a", "")
+            hash_b = arguments.get("hash_b")
+
+            if not hash_a:
+                return {"error": "hash_a is required", "success": False}
+
+            try:
+                diff_result = engine.diff(hash_a, hash_b)
+            except ValueError as exc:
+                return {"error": str(exc), "success": False}
+
+            return {"success": True, **diff_result}
+
+        elif tool_name == "cvc_stats":
+            stats_result = engine.stats()
+            return {"success": True, **stats_result}
+
+        elif tool_name == "cvc_compact":
+            smart = arguments.get("smart", True)
+            keep_recent = arguments.get("keep_recent", 10)
+            target_ratio = arguments.get("target_ratio", 0.5)
+
+            result = engine.compact(
+                smart=smart,
+                keep_recent=keep_recent,
+                target_ratio=target_ratio,
+            )
+            return result.model_dump()
+
+        elif tool_name == "cvc_timeline":
+            limit = arguments.get("limit", 50)
+            timeline_result = engine.timeline(limit=limit)
+            return {"success": True, **timeline_result}
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

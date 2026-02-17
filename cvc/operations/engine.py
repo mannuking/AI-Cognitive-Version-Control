@@ -848,3 +848,579 @@ class CVCEngine:
             ),
             detail=detail,
         )
+
+    # ======================================================================
+    # 5.1  DIFF (Knowledge / Decision Diff Between Commits)
+    # ======================================================================
+
+    def diff(
+        self,
+        hash_a: str,
+        hash_b: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Compare two commits and show knowledge/decision differences.
+
+        If *hash_b* is None, compares *hash_a* against the current HEAD.
+        Returns a structured diff with added/removed messages, changed
+        reasoning, source file changes, and metadata differences.
+        """
+        # Resolve commits
+        commit_a = self.db.index.get_commit(hash_a)
+        if commit_a is None:
+            raise ValueError(f"Commit '{hash_a}' not found.")
+
+        if hash_b is None:
+            hash_b = self.head_hash
+        if hash_b is None:
+            raise ValueError("No HEAD commit found. Create a commit first.")
+        commit_b = self.db.index.get_commit(hash_b)
+        if commit_b is None:
+            raise ValueError(f"Commit '{hash_b}' not found.")
+
+        # Retrieve blobs
+        blob_a = self.db.retrieve_blob(commit_a.commit_hash)
+        blob_b = self.db.retrieve_blob(commit_b.commit_hash)
+        if blob_a is None:
+            raise ValueError(f"Blob for commit '{commit_a.commit_hash}' could not be reconstructed.")
+        if blob_b is None:
+            raise ValueError(f"Blob for commit '{commit_b.commit_hash}' could not be reconstructed.")
+
+        # Build content fingerprints for messages (role + content hash)
+        def _msg_key(m: ContextMessage) -> str:
+            return f"{m.role}:{hashlib.sha256(m.content.encode()).hexdigest()[:16]}"
+
+        import hashlib
+        keys_a = {_msg_key(m) for m in blob_a.messages}
+        keys_b = {_msg_key(m) for m in blob_b.messages}
+
+        # Messages only in A (removed going A→B)
+        only_a_keys = keys_a - keys_b
+        only_b_keys = keys_b - keys_a
+
+        removed_messages = []
+        for m in blob_a.messages:
+            if _msg_key(m) in only_a_keys:
+                removed_messages.append({
+                    "role": m.role,
+                    "content": m.content[:500],
+                    "timestamp": m.timestamp,
+                })
+
+        added_messages = []
+        for m in blob_b.messages:
+            if _msg_key(m) in only_b_keys:
+                added_messages.append({
+                    "role": m.role,
+                    "content": m.content[:500],
+                    "timestamp": m.timestamp,
+                })
+
+        # Source file diff
+        files_a = set(blob_a.source_files.keys())
+        files_b = set(blob_b.source_files.keys())
+        added_files = sorted(files_b - files_a)
+        removed_files = sorted(files_a - files_b)
+        modified_files = sorted(
+            f for f in files_a & files_b
+            if blob_a.source_files[f] != blob_b.source_files[f]
+        )
+
+        # Reasoning trace diff
+        trace_changed = blob_a.reasoning_trace != blob_b.reasoning_trace
+        trace_a = blob_a.reasoning_trace[:1000] if blob_a.reasoning_trace else ""
+        trace_b = blob_b.reasoning_trace[:1000] if blob_b.reasoning_trace else ""
+
+        # Metadata comparison
+        meta_diffs: dict[str, Any] = {}
+        for field in ("provider", "model", "agent_id", "mode"):
+            va = getattr(commit_a.metadata, field, None)
+            vb = getattr(commit_b.metadata, field, None)
+            if va != vb:
+                meta_diffs[field] = {"from": va, "to": vb}
+
+        # Token delta
+        token_delta = blob_b.token_count - blob_a.token_count
+
+        return {
+            "commit_a": {
+                "hash": commit_a.commit_hash,
+                "short": commit_a.short_hash,
+                "message": commit_a.message,
+                "type": commit_a.commit_type.value,
+                "timestamp": commit_a.metadata.timestamp,
+                "message_count": len(blob_a.messages),
+                "token_count": blob_a.token_count,
+            },
+            "commit_b": {
+                "hash": commit_b.commit_hash,
+                "short": commit_b.short_hash,
+                "message": commit_b.message,
+                "type": commit_b.commit_type.value,
+                "timestamp": commit_b.metadata.timestamp,
+                "message_count": len(blob_b.messages),
+                "token_count": blob_b.token_count,
+            },
+            "messages": {
+                "added": added_messages,
+                "removed": removed_messages,
+                "added_count": len(added_messages),
+                "removed_count": len(removed_messages),
+                "common_count": len(keys_a & keys_b),
+            },
+            "source_files": {
+                "added": added_files,
+                "removed": removed_files,
+                "modified": modified_files,
+            },
+            "reasoning_trace": {
+                "changed": trace_changed,
+                "from": trace_a,
+                "to": trace_b,
+            },
+            "metadata_changes": meta_diffs,
+            "token_delta": token_delta,
+        }
+
+    # ======================================================================
+    # 5.2  STATS (Analytics Dashboard)
+    # ======================================================================
+
+    def stats(self) -> dict[str, Any]:
+        """
+        Aggregate analytics across all commits:
+        total tokens, message counts, commit types, providers/models,
+        most-discussed source files, branch activity, and timing patterns.
+        """
+        from datetime import datetime
+        from collections import Counter
+
+        all_commits = self.db.index.list_all_commits(limit=10000)
+        all_branches = self.db.index.list_branches()
+
+        if not all_commits:
+            return {
+                "total_commits": 0,
+                "message": "No commits found. Create a commit first.",
+            }
+
+        total_tokens = 0
+        total_messages = 0
+        role_counter: Counter[str] = Counter()
+        type_counter: Counter[str] = Counter()
+        provider_counter: Counter[str] = Counter()
+        model_counter: Counter[str] = Counter()
+        file_counter: Counter[str] = Counter()
+        tag_counter: Counter[str] = Counter()
+        hourly_counter: Counter[int] = Counter()
+        daily_counter: Counter[str] = Counter()
+        commit_sizes: list[int] = []
+        timestamps: list[float] = []
+
+        for commit in all_commits:
+            type_counter[commit.commit_type.value] += 1
+            if commit.metadata.provider:
+                provider_counter[commit.metadata.provider] += 1
+            if commit.metadata.model:
+                model_counter[commit.metadata.model] += 1
+            for tag in commit.metadata.tags:
+                tag_counter[tag] += 1
+            timestamps.append(commit.metadata.timestamp)
+
+            # Try to reconstruct blob for deeper stats
+            try:
+                blob = self.db.retrieve_blob(commit.commit_hash)
+                if blob:
+                    total_tokens += blob.token_count
+                    msg_count = len(blob.messages)
+                    total_messages += msg_count
+                    commit_sizes.append(msg_count)
+                    for m in blob.messages:
+                        role_counter[m.role] += 1
+                    for path in blob.source_files:
+                        file_counter[path] += 1
+                else:
+                    commit_sizes.append(0)
+            except Exception:
+                commit_sizes.append(0)
+
+            # Time patterns
+            try:
+                dt = datetime.fromtimestamp(commit.metadata.timestamp)
+                hourly_counter[dt.hour] += 1
+                daily_counter[dt.strftime("%A")] += 1
+            except Exception:
+                pass
+
+        # Time span
+        if timestamps:
+            first_ts = min(timestamps)
+            last_ts = max(timestamps)
+            first_dt = datetime.fromtimestamp(first_ts)
+            last_dt = datetime.fromtimestamp(last_ts)
+            span_days = max((last_ts - first_ts) / 86400, 0.01)
+        else:
+            first_dt = last_dt = datetime.now()
+            span_days = 0
+
+        # Average commit size
+        avg_size = sum(commit_sizes) / len(commit_sizes) if commit_sizes else 0
+
+        # Peak hours
+        peak_hours = hourly_counter.most_common(3)
+        busiest_day = daily_counter.most_common(1)
+
+        return {
+            "total_commits": len(all_commits),
+            "total_messages": total_messages,
+            "total_tokens": total_tokens,
+            "estimated_cost_usd": round(total_tokens * 0.000015, 4),  # rough estimate
+            "branches": {
+                "total": len(all_branches),
+                "active": sum(1 for b in all_branches if b.status == BranchStatus.ACTIVE),
+                "merged": sum(1 for b in all_branches if b.status == BranchStatus.MERGED),
+                "names": [b.name for b in all_branches],
+            },
+            "commit_types": dict(type_counter.most_common()),
+            "messages_by_role": dict(role_counter.most_common()),
+            "providers": dict(provider_counter.most_common()),
+            "models": dict(model_counter.most_common()),
+            "top_files": dict(file_counter.most_common(15)),
+            "top_tags": dict(tag_counter.most_common(10)),
+            "time_span": {
+                "first_commit": first_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "last_commit": last_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "span_days": round(span_days, 1),
+                "commits_per_day": round(len(all_commits) / max(span_days, 0.01), 1),
+            },
+            "average_commit_size": round(avg_size, 1),
+            "peak_hours": [{"hour": h, "commits": c} for h, c in peak_hours],
+            "busiest_day": busiest_day[0][0] if busiest_day else "N/A",
+            "current_branch": self._active_branch,
+            "current_context_messages": len(self._context_window),
+        }
+
+    # ======================================================================
+    # 5.3  COMPACT (AI-Powered Context Compression)
+    # ======================================================================
+
+    def compact(
+        self,
+        smart: bool = True,
+        keep_recent: int = 10,
+        target_ratio: float = 0.5,
+    ) -> CVCOperationResponse:
+        """
+        Compress the context window to reduce token usage while preserving
+        key decisions, architecture notes, and recent conversation flow.
+
+        If *smart* is True, uses heuristic-based intelligent compression:
+          - Preserves system messages (instructions, injected context)
+          - Preserves the most recent *keep_recent* messages
+          - Summarises older user/assistant exchanges into condensed form
+          - Retains messages containing code blocks, decisions, or key terms
+
+        If *smart* is False, simply truncates to *keep_recent* messages.
+
+        *target_ratio* is the target compression ratio (0.5 = keep ~50% of tokens).
+        """
+        if not self._context_window:
+            return CVCOperationResponse(
+                success=False,
+                operation="compact",
+                message="Context window is empty. Nothing to compact.",
+            )
+
+        original_count = len(self._context_window)
+        original_tokens = sum(len(m.content.split()) for m in self._context_window)
+
+        if not smart:
+            # Simple truncation — keep only recent messages
+            if original_count <= keep_recent:
+                return CVCOperationResponse(
+                    success=True,
+                    operation="compact",
+                    message=f"Context already small enough ({original_count} messages).",
+                    detail={
+                        "original_messages": original_count,
+                        "final_messages": original_count,
+                        "compression_ratio": 1.0,
+                    },
+                )
+
+            kept = self._context_window[-keep_recent:]
+            removed_count = original_count - keep_recent
+
+            # Add a compaction notice
+            summary_msg = ContextMessage(
+                role="system",
+                content=(
+                    f"[CVC COMPACT] Truncated {removed_count} older messages. "
+                    f"Kept the {keep_recent} most recent messages."
+                ),
+            )
+            self._context_window = [summary_msg] + kept
+            self._save_persistent_cache()
+
+            final_tokens = sum(len(m.content.split()) for m in self._context_window)
+
+            return CVCOperationResponse(
+                success=True,
+                operation="compact",
+                branch=self._active_branch,
+                message=f"Truncated {removed_count} messages (kept {keep_recent} recent).",
+                detail={
+                    "original_messages": original_count,
+                    "final_messages": len(self._context_window),
+                    "original_tokens": original_tokens,
+                    "final_tokens": final_tokens,
+                    "compression_ratio": round(final_tokens / max(original_tokens, 1), 3),
+                    "mode": "truncate",
+                },
+            )
+
+        # ── Smart compression ──────────────────────────────────────────────
+
+        # Key terms that indicate important messages worth preserving
+        KEY_TERMS = {
+            "decision", "decided", "architecture", "design", "important",
+            "critical", "error", "fix", "bug", "security", "api", "schema",
+            "database", "migration", "deploy", "config", "breaking",
+            "requirement", "constraint", "must", "should", "trade-off",
+            "conclusion", "solution", "approach", "strategy", "pattern",
+        }
+
+        def _is_important(msg: ContextMessage) -> bool:
+            """Heuristic: is this message important enough to keep verbatim?"""
+            # System messages are always important
+            if msg.role == "system":
+                return True
+            content_lower = msg.content.lower()
+            # Messages with code blocks
+            if "```" in msg.content:
+                return True
+            # Messages with key decision terms
+            if any(term in content_lower for term in KEY_TERMS):
+                return True
+            # Very short messages (questions, confirmations) — keep
+            if len(msg.content) < 100:
+                return True
+            return False
+
+        # Split into zones
+        if original_count <= keep_recent:
+            return CVCOperationResponse(
+                success=True,
+                operation="compact",
+                message=f"Context already small enough ({original_count} messages).",
+                detail={
+                    "original_messages": original_count,
+                    "final_messages": original_count,
+                    "compression_ratio": 1.0,
+                },
+            )
+
+        older = self._context_window[:-keep_recent]
+        recent = self._context_window[-keep_recent:]
+
+        # Classify older messages
+        important_msgs: list[ContextMessage] = []
+        compressible_msgs: list[ContextMessage] = []
+
+        for msg in older:
+            if _is_important(msg):
+                important_msgs.append(msg)
+            else:
+                compressible_msgs.append(msg)
+
+        # Compress the compressible messages into summaries
+        # Group into chunks of ~5 messages for summarisation
+        summaries: list[ContextMessage] = []
+        chunk_size = 5
+
+        for i in range(0, len(compressible_msgs), chunk_size):
+            chunk = compressible_msgs[i:i + chunk_size]
+
+            # Build a condensed summary of the chunk
+            chunk_roles = [m.role for m in chunk]
+            role_counts = {}
+            for r in chunk_roles:
+                role_counts[r] = role_counts.get(r, 0) + 1
+
+            # Extract key points from each message
+            key_points: list[str] = []
+            for m in chunk:
+                # Take first sentence or first 150 chars
+                content = m.content.strip()
+                first_line = content.split("\n")[0][:150]
+                if len(content) > 150:
+                    key_points.append(f"[{m.role}] {first_line}…")
+                else:
+                    key_points.append(f"[{m.role}] {first_line}")
+
+            summary_text = (
+                f"[CVC COMPACT] Summary of {len(chunk)} messages "
+                f"({', '.join(f'{c} {r}' for r, c in role_counts.items())}):\n"
+                + "\n".join(f"  • {kp}" for kp in key_points)
+            )
+
+            summaries.append(
+                ContextMessage(role="system", content=summary_text)
+            )
+
+        # Reassemble: compaction header + important old msgs + summaries + recent
+        compaction_header = ContextMessage(
+            role="system",
+            content=(
+                f"[CVC COMPACT] Context compacted: {original_count} → "
+                f"{len(important_msgs) + len(summaries) + len(recent) + 1} messages. "
+                f"{len(compressible_msgs)} messages summarised, "
+                f"{len(important_msgs)} important messages preserved verbatim."
+            ),
+        )
+
+        self._context_window = (
+            [compaction_header]
+            + important_msgs
+            + summaries
+            + recent
+        )
+        self._save_persistent_cache()
+
+        final_count = len(self._context_window)
+        final_tokens = sum(len(m.content.split()) for m in self._context_window)
+
+        # Auto-commit the compacted state
+        compact_commit = self.commit(
+            CVCCommitRequest(
+                message=f"Smart compaction: {original_count} → {final_count} messages",
+                commit_type=CommitType.CHECKPOINT,
+                tags=["compact", "smart"],
+            )
+        )
+
+        return CVCOperationResponse(
+            success=True,
+            operation="compact",
+            commit_hash=compact_commit.commit_hash,
+            branch=self._active_branch,
+            message=(
+                f"Smart compaction: {original_count} → {final_count} messages "
+                f"({original_tokens} → {final_tokens} tokens)"
+            ),
+            detail={
+                "original_messages": original_count,
+                "final_messages": final_count,
+                "original_tokens": original_tokens,
+                "final_tokens": final_tokens,
+                "compression_ratio": round(final_tokens / max(original_tokens, 1), 3),
+                "important_preserved": len(important_msgs),
+                "summarised_chunks": len(summaries),
+                "recent_kept": len(recent),
+                "mode": "smart",
+            },
+        )
+
+    # ======================================================================
+    # 5.4  TIMELINE (Branch-Aware Commit Timeline)
+    # ======================================================================
+
+    def timeline(self, limit: int = 50) -> dict[str, Any]:
+        """
+        Build a complete timeline of all commits across all branches,
+        including branch points, merges, and provider/model information.
+
+        Returns structured data suitable for rendering an ASCII timeline
+        or a rich visual in the CLI.
+        """
+        from datetime import datetime
+
+        all_branches = self.db.index.list_branches()
+        all_commits = self.db.index.list_all_commits(limit=limit)
+
+        if not all_commits:
+            return {"total_commits": 0, "branches": [], "events": []}
+
+        # Build a commit-to-branch mapping
+        commit_branch_map: dict[str, list[str]] = {}
+        for branch in all_branches:
+            ancestors = self.db.index.get_ancestors(branch.head_hash, limit=limit)
+            for c in ancestors:
+                commit_branch_map.setdefault(c.commit_hash, []).append(branch.name)
+
+        # Build timeline events
+        events: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for commit in all_commits:
+            if commit.commit_hash in seen:
+                continue
+            seen.add(commit.commit_hash)
+
+            try:
+                dt = datetime.fromtimestamp(commit.metadata.timestamp)
+                time_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                time_str = "unknown"
+
+            branches = commit_branch_map.get(commit.commit_hash, ["?"])
+
+            # Determine event type
+            if commit.commit_type == CommitType.MERGE:
+                event_type = "merge"
+                icon = "⊕"
+            elif commit.commit_type == CommitType.ANCHOR:
+                event_type = "anchor"
+                icon = "◆"
+            elif commit.commit_type == CommitType.ROLLBACK:
+                event_type = "rollback"
+                icon = "↺"
+            elif len(commit.parent_hashes) == 0:
+                event_type = "genesis"
+                icon = "★"
+            else:
+                event_type = "commit"
+                icon = "●"
+
+            # Check if this is a branch point (appears in multiple branches)
+            is_branch_point = len(branches) > 1
+
+            events.append({
+                "hash": commit.commit_hash,
+                "short": commit.short_hash,
+                "message": commit.message,
+                "type": commit.commit_type.value,
+                "event_type": event_type,
+                "icon": icon,
+                "timestamp": commit.metadata.timestamp,
+                "time_str": time_str,
+                "provider": commit.metadata.provider or "",
+                "model": commit.metadata.model or "",
+                "branches": branches,
+                "is_branch_point": is_branch_point,
+                "is_merge": commit.commit_type == CommitType.MERGE,
+                "parents": commit.parent_hashes,
+                "is_delta": commit.is_delta,
+                "tags": commit.metadata.tags,
+            })
+
+        # Sort by timestamp (newest first)
+        events.sort(key=lambda e: e["timestamp"], reverse=True)
+
+        # Trim to limit
+        events = events[:limit]
+
+        return {
+            "total_commits": len(events),
+            "branches": [
+                {
+                    "name": b.name,
+                    "head": b.head_hash[:12],
+                    "status": b.status.value,
+                    "is_active": b.name == self._active_branch,
+                }
+                for b in all_branches
+            ],
+            "events": events,
+            "active_branch": self._active_branch,
+        }
