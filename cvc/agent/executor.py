@@ -728,45 +728,49 @@ class ToolExecutor:
         return f"Merge failed: {result.message}"
 
     def _cvc_search(self, args: dict) -> str:
-        query = args["query"].lower()
+        query = args["query"]
         limit = args.get("limit", 10)
 
-        # Search through all commits for matching messages
-        all_branches = self.engine.db.index.list_branches()
-        matches = []
-
-        for branch in all_branches:
-            commits = self.engine.db.index.list_commits(branch=branch.name, limit=100)
-            for commit in commits:
-                score = 0
-                msg_lower = commit.message.lower()
-                # Score based on keyword overlap
-                for word in query.split():
-                    if word in msg_lower:
-                        score += 1
-                if score > 0:
-                    matches.append({
-                        "hash": commit.short_hash,
-                        "full_hash": commit.commit_hash,
-                        "branch": branch.name,
-                        "type": commit.commit_type.value,
-                        "message": commit.message,
-                        "score": score,
-                        "timestamp": commit.metadata.timestamp,
-                    })
-
-        # Sort by score descending, then by timestamp
-        matches.sort(key=lambda m: (-m["score"], -m["timestamp"]))
-        matches = matches[:limit]
+        # Use the engine's deep recall — hybrid search that checks:
+        #  1. Semantic vector search (if ChromaDB available)
+        #  2. Commit message text matching
+        #  3. Deep content blob search (actual conversation messages)
+        # This ensures the agent can find conversations by WHAT WAS SAID,
+        # not just by the commit message label.
+        matches = self.engine.recall(query, limit=limit, deep=True)
 
         if not matches:
             return f"No commits found matching '{query}'"
 
         lines = [f"Found {len(matches)} commit(s) matching '{query}':\n"]
         for m in matches:
+            source_tag = m.get("relevance_source", "text")
+            branch_info = ""
+            # Try to find which branch this commit is on
+            try:
+                all_branches = self.engine.db.index.list_branches()
+                for b in all_branches:
+                    ancestors = self.engine.db.index.list_commits(branch=b.name, limit=200)
+                    for a in ancestors:
+                        if a.commit_hash == m["commit_hash"]:
+                            branch_info = b.name
+                            break
+                    if branch_info:
+                        break
+            except Exception:
+                pass
+
+            branch_label = f"{branch_info}/" if branch_info else ""
             lines.append(
-                f"  {m['hash']}  [{m['branch']}/{m['type']}]  {m['message'][:60]}"
+                f"  {m['short_hash']}  [{branch_label}{m.get('commit_type', 'checkpoint')}]  "
+                f"{m['message'][:60]}  ({source_tag})"
             )
+
+            # Show matching conversation snippets for deep results
+            for mm in m.get("matching_messages", [])[:2]:
+                preview = mm["content"][:80].replace("\n", " ")
+                lines.append(f"    └─ [{mm['role']}] {preview}")
+
         lines.append(
             "\nUse cvc_restore with a commit hash to time-travel to that context."
         )

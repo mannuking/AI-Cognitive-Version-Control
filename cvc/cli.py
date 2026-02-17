@@ -1649,13 +1649,21 @@ def init(path: str) -> None:
     config.ensure_dirs()
 
     from cvc.core.database import ContextDatabase
-    ContextDatabase(config)
+    db = ContextDatabase(config)
+
+    # Report vector store status
+    vector_status = "[#55AA55]● enabled[/#55AA55]" if db.vectors.available else "[#CC3333]✗ unavailable[/#CC3333]"
+    chroma_count = 0
+    if db.vectors.available and db.vectors._collection:
+        chroma_count = db.vectors._collection.count()
 
     console.print(
         Panel(
             f"  Directory  [bold]{config.cvc_root}[/bold]\n"
             f"  Database   [dim]{config.db_path}[/dim]\n"
-            f"  Objects    [dim]{config.objects_dir}[/dim]",
+            f"  Objects    [dim]{config.objects_dir}[/dim]\n"
+            f"  Vectors    {vector_status}  [dim]{config.chroma_persist_dir}[/dim]\n"
+            f"  Embeddings [dim]{chroma_count} indexed[/dim]",
             border_style="#5C1010",
             title="[bold #55AA55]✓ Initialised[/bold #55AA55]",
             padding=(1, 2),
@@ -2062,7 +2070,7 @@ def recall(query: str, limit: int, deep: bool) -> None:
             "Tips:\n"
             "• Try broader search terms\n"
             "• Use [bold]--deep[/bold] to search inside conversation content\n"
-            "• Enable Tier 3 vectors: [bold]CVC_VECTOR_ENABLED=true[/bold]"
+            "• Check [bold]cvc log[/bold] to see available commits"
         )
         db.close()
         return

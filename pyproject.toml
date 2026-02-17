@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tm-ai"
-version = "1.4.81"
+version = "1.5.0"
 description = "Time Machine for AI Agents — Cognitive Version Control for LLM context"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,15 +36,15 @@ dependencies = [
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "prompt_toolkit>=3.0.0",
+    "chromadb>=1.0.0",
 ]
 
 [project.optional-dependencies]
-vector = ["chromadb>=0.5.0", "sentence-transformers>=3.0.0"]
 anthropic = ["anthropic>=0.39.0"]
 openai = ["openai>=1.50.0"]
 google = ["google-genai>=1.0.0"]
 ollama = []  # No extra deps — Ollama uses httpx (already a core dep)
-all = ["tm-ai[vector,anthropic,openai,google]"]
+all = ["tm-ai[anthropic,openai,google]"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24.0", "ruff>=0.7.0"]
 
 [project.scripts]

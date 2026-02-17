@@ -438,12 +438,28 @@ async def cvc_log(limit: int = 20) -> dict[str, Any]:
 
 
 @app.get("/cvc/search")
-async def cvc_search(query: str, n: int = 5) -> dict[str, Any]:
-    """Semantic search over commit summaries (Tier 3)."""
-    assert _db is not None
+async def cvc_search(query: str, n: int = 5, deep: bool = True) -> dict[str, Any]:
+    """Deep hybrid search over commits: semantic + message text + content."""
+    assert _engine is not None
+    results = _engine.recall(query, limit=n, deep=deep)
     return {
         "query": query,
-        "results": _db.search_similar(query, n=n),
+        "vector_search_available": _engine.db.vectors.available,
+        "result_count": len(results),
+        "results": results,
+    }
+
+
+@app.get("/cvc/recall")
+async def cvc_recall(query: str, limit: int = 10, deep: bool = True) -> dict[str, Any]:
+    """Natural-language recall — find past conversations by meaning."""
+    assert _engine is not None
+    results = _engine.recall(query, limit=limit, deep=deep)
+    return {
+        "query": query,
+        "vector_search_available": _engine.db.vectors.available,
+        "result_count": len(results),
+        "results": results,
     }
 
 

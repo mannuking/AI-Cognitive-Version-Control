@@ -351,13 +351,21 @@ class CVCConfig(BaseModel):
     proxy_port: int = 8000
 
     # Vector store
-    vector_enabled: bool = False
+    vector_enabled: bool = True
     chroma_persist_dir: Path = Path(".cvc/chroma")
 
     def ensure_dirs(self) -> None:
-        """Create all required directories."""
-        for d in (self.cvc_root, self.objects_dir, self.branches_dir):
+        """Create all required directories (including vector store)."""
+        for d in (self.cvc_root, self.objects_dir, self.branches_dir, self.chroma_persist_dir):
             d.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _resolve_vector_enabled() -> bool:
+        """Resolve vector store setting: env var override > default True."""
+        env_val = os.getenv("CVC_VECTOR_ENABLED")
+        if env_val is not None:
+            return env_val.lower() == "true"
+        return True  # ChromaDB is a core dependency
 
     @classmethod
     def for_project(cls, project_root: Path | None = None, **overrides: Any) -> "CVCConfig":
@@ -430,7 +438,7 @@ class CVCConfig(BaseModel):
             api_key=api_key,
             proxy_host=os.getenv("CVC_HOST", "127.0.0.1"),
             proxy_port=int(os.getenv("CVC_PORT", "8000")),
-            vector_enabled=os.getenv("CVC_VECTOR_ENABLED", "false").lower() == "true",
+            vector_enabled=cls._resolve_vector_enabled(),
             chroma_persist_dir=root / "chroma",
             **overrides,
         )
