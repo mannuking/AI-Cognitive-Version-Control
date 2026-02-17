@@ -95,7 +95,7 @@ class CVCEngine:
         The cache is loaded on startup if no commits exist yet.
         """
         try:
-            cache_file = self.config.cvc_dir / "context_cache.json"
+            cache_file = self.config.cvc_root / "context_cache.json"
             cache_data = {
                 "branch": self._active_branch,
                 "messages": [m.model_dump() for m in self._context_window],
@@ -113,7 +113,7 @@ class CVCEngine:
         Returns True if cache was loaded, False otherwise.
         """
         try:
-            cache_file = self.config.cvc_dir / "context_cache.json"
+            cache_file = self.config.cvc_root / "context_cache.json"
             if not cache_file.exists():
                 return False
             
@@ -166,6 +166,7 @@ class CVCEngine:
 
         meta = CommitMetadata(
             agent_id=self.config.agent_id,
+            mode=self.config.mode,
             git_commit_sha=git_sha,
             provider=self.config.provider,
             model=self.config.model,
@@ -337,7 +338,10 @@ class CVCEngine:
             ),
         )
 
-        merge_meta = CommitMetadata(agent_id=self.config.agent_id)
+        merge_meta = CommitMetadata(
+            agent_id=self.config.agent_id,
+            mode=self.config.mode,
+        )
 
         merge_commit = CognitiveCommit(
             parent_hashes=[target_bp.head_hash, source_bp.head_hash],
@@ -425,7 +429,10 @@ class CVCEngine:
             commit_type=CommitType.ROLLBACK,
             message=f"Restored to {commit.short_hash}: {commit.message[:60]}",
             content_blob=rollback_blob,
-            metadata=CommitMetadata(agent_id=self.config.agent_id),
+            metadata=CommitMetadata(
+                agent_id=self.config.agent_id,
+                mode=self.config.mode,
+            ),
         )
         rollback_hash = self.db.store_commit(rollback_commit)
         self.db.index.advance_head(self._active_branch, rollback_hash)

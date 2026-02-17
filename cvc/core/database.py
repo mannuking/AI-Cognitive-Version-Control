@@ -589,7 +589,10 @@ class ContextDatabase:
             genesis = CognitiveCommit(
                 commit_type=CommitType.ANCHOR,
                 message="Genesis — CVC initialised",
-                metadata=CommitMetadata(agent_id=self.config.agent_id),
+                metadata=CommitMetadata(
+                    agent_id=self.config.agent_id,
+                    mode=self.config.mode,
+                ),
             )
             genesis.compute_hash()
             blob_key = self.blobs.put(genesis.content_blob.canonical_bytes())

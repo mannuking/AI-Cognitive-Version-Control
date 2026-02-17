@@ -166,6 +166,7 @@ class CommitMetadata(BaseModel):
     """Immutable metadata attached to every cognitive commit."""
     timestamp: float = Field(default_factory=time.time)
     agent_id: str = "sofia"
+    mode: str | None = None                 # Which service created this: "mcp", "proxy", or "cli"
     git_commit_sha: str | None = None      # The linked codebase commit
     provider: str | None = None             # e.g. "anthropic", "openai"
     model: str | None = None                # e.g. "claude-sonnet-4-20250514"
@@ -337,6 +338,7 @@ class CVCConfig(BaseModel):
     default_branch: str = "main"
     anchor_interval: int = 10               # Full snapshot every N commits
     agent_id: str = "sofia"
+    mode: str = "cli"                       # Which service is running: "mcp", "proxy", or "cli"
 
     # Provider — supports: anthropic, openai, google, ollama
     provider: str = "anthropic"

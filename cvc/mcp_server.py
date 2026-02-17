@@ -138,7 +138,7 @@ class _MCPSession:
             os.chdir(workspace)
             
             # Load or create config
-            config = CVCConfig.for_project()
+            config = CVCConfig.for_project(mode="mcp")
             
             # Auto-initialize if .cvc/ doesn't exist
             cvc_dir = workspace / ".cvc"
@@ -176,6 +176,8 @@ class _MCPSession:
         1. Last committed context from database
         2. Persistent cache file (if crash happened before commit)
         3. Empty state (new session)
+        
+        CROSS-MODE SUPPORT: MCP can restore sessions from Proxy or CLI
         """
         if not self.engine or not self.db:
             return
@@ -209,12 +211,22 @@ class _MCPSession:
                 self.engine._context_window = list(blob.messages)
                 self.engine._reasoning_trace = blob.reasoning_trace
                 
-                logger.info(
-                    "✅ Auto-restored %d messages from last commit %s (%s)",
-                    len(blob.messages),
-                    bp.head_hash[:12],
-                    head_commit.message[:60]
-                )
+                # Cross-mode detection
+                previous_mode = head_commit.metadata.mode or "unknown"
+                if previous_mode != "mcp":
+                    logger.info(
+                        "🔄 Cross-mode restore: %d messages from %s → MCP (commit %s)",
+                        len(blob.messages),
+                        previous_mode.upper(),
+                        bp.head_hash[:12]
+                    )
+                else:
+                    logger.info(
+                        "✅ Auto-restored %d messages from last commit %s (%s)",
+                        len(blob.messages),
+                        bp.head_hash[:12],
+                        head_commit.message[:60]
+                    )
             else:
                 logger.info("No messages in HEAD commit, trying persistent cache")
                 self.engine._load_persistent_cache()

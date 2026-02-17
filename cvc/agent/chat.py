@@ -87,8 +87,8 @@ from cvc.operations.engine import CVCEngine
 
 logger = logging.getLogger("cvc.agent")
 
-# Auto-commit every N assistant turns
-AUTO_COMMIT_INTERVAL = int(os.environ.get("CVC_AGENT_AUTO_COMMIT", "5"))
+# Auto-commit every N assistant turns (CLI optimized for automatic persistence)
+AUTO_COMMIT_INTERVAL = int(os.environ.get("CVC_AGENT_AUTO_COMMIT", "2"))  # Changed from 5 to 2 for aggressive auto-save
 MAX_TOOL_ITERATIONS = 25  # Safety limit for tool loops
 MAX_RETRY_ATTEMPTS = 2    # Retry failed tool calls
 
@@ -1130,6 +1130,7 @@ class AgentSession:
                 project_root=self.workspace,
                 provider=self.config.provider,
                 model=self.config.model,
+                mode="cli",
             )
             config.ensure_dirs()
             from cvc.core.database import ContextDatabase as DB
@@ -1214,10 +1215,55 @@ async def _run_agent_async(
         project_root=workspace,
         provider=provider,
         model=model,
+        mode="cli",
     )
     config.ensure_dirs()
     db = ContextDatabase(config)
     engine = CVCEngine(config, db)
+
+    # AUTO-RESTORE: Load last commit or persistent cache to prevent data loss
+    # CROSS-MODE SUPPORT: CLI can restore sessions from MCP or Proxy
+    try:
+        # Try to load from last commit first
+        bp = db.index.branch_pointer(engine.active_branch)
+        if bp and bp.head_hash:
+            head_commit = db.index.get_commit(bp.head_hash)
+            if head_commit:
+                blob = db.content.get_blob(head_commit.content_hash)
+                if blob and blob.messages:
+                    engine._context_window = list(blob.messages)
+                    engine._reasoning_trace = blob.reasoning_trace
+                    
+                    # Cross-mode detection
+                    previous_mode = head_commit.metadata.mode or "unknown"
+                    if previous_mode != "cli":
+                        logger.info(
+                            "🔄 Cross-mode restore: %d messages from %s → CLI (commit %s)",
+                            len(blob.messages),
+                            previous_mode.upper(),
+                            bp.head_hash[:12]
+                        )
+                    else:
+                        logger.info(
+                            "✅ CLI auto-restored %d messages from last commit %s",
+                            len(blob.messages),
+                            bp.head_hash[:12]
+                        )
+                else:
+                    # Fallback to persistent cache
+                    engine._load_persistent_cache()
+            else:
+                engine._load_persistent_cache()
+        else:
+            # No commits yet, try persistent cache
+            engine._load_persistent_cache()
+    except Exception as e:
+        logger.debug("CLI auto-restore failed (non-fatal): %s", e)
+        # Still try persistent cache
+        try:
+            engine._load_persistent_cache()
+        except Exception:
+            pass
 
     # Build LLM client
     base_url_map = {

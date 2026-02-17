@@ -140,7 +140,7 @@ _session_tracker = _SessionTracker()
 
 def _load_config() -> CVCConfig:
     """Build configuration using the unified project discovery + global config system."""
-    return CVCConfig.for_project()
+    return CVCConfig.for_project(mode="proxy")
 
 
 def _auto_restore_context() -> None:
@@ -149,6 +149,7 @@ def _auto_restore_context() -> None:
     
     Ensures conversations persist across proxy restarts.
     Priority: Database commit > Persistent cache > Empty state
+    CROSS-MODE SUPPORT: Proxy can restore sessions from MCP or CLI
     """
     global _engine, _db
     
@@ -172,10 +173,21 @@ def _auto_restore_context() -> None:
         if blob and blob.messages:
             _engine._context_window = list(blob.messages)
             _engine._reasoning_trace = blob.reasoning_trace
-            logger.info(
-                "✅ Proxy auto-restored %d messages from commit %s",
-                len(blob.messages), bp.head_hash[:12]
-            )
+            
+            # Cross-mode detection
+            previous_mode = head_commit.metadata.mode or "unknown"
+            if previous_mode != "proxy":
+                logger.info(
+                    "🔄 Cross-mode restore: %d messages from %s → PROXY (commit %s)",
+                    len(blob.messages),
+                    previous_mode.upper(),
+                    bp.head_hash[:12]
+                )
+            else:
+                logger.info(
+                    "✅ Proxy auto-restored %d messages from commit %s",
+                    len(blob.messages), bp.head_hash[:12]
+                )
         else:
             _engine._load_persistent_cache()
     
