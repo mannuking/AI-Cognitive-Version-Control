@@ -690,7 +690,10 @@ def run_mcp_stdio() -> None:
         _print_stdio_guidance()
 
     logger.info("CVC MCP Server ready (stdio transport) — waiting for JSON-RPC messages")
-    sys.stderr.write("CVC MCP Server ready (stdio) — awaiting IDE connection…\n")
+    sys.stderr.write("\n✅ If you configured mcp.json and restarted your IDE, CVC is ALREADY WORKING!\n")
+    sys.stderr.write("   Close this terminal and use CVC through your AI assistant.\n\n")
+    sys.stderr.write("   This terminal instance will remain open (listening on stdin) but is NOT needed.\n")
+    sys.stderr.write("   Press Ctrl+C to stop.\n\n")
     sys.stderr.flush()
 
     # Read JSON-RPC messages from stdin, write responses to stdout
@@ -803,90 +806,110 @@ def _print_stdio_guidance() -> None:
     version = _get_version()
     sys.stderr.write(f"""
 ╭──────────────────────────────────────────────────────────────────╮
-│  CVC MCP Server v{version}                                        │
-│  Cognitive Version Control — MCP stdio transport                 │
-│  ✨ NEW: Auto workspace detection + persistent state             │
+│  ⚠️  YOU DON'T NEED TO RUN THIS COMMAND MANUALLY!               │
 ╰──────────────────────────────────────────────────────────────────╯
 
-  This server communicates via JSON-RPC over stdin/stdout.
-  It's designed to be launched BY your IDE, not run manually.
+╭──────────────────────────────────────────────────────────────────╮
+│  CVC MCP Server v{version}                                        │
+│  Cognitive Version Control — MCP stdio transport                 │
+│  ✨ Auto workspace detection + persistent state                  │
+╰──────────────────────────────────────────────────────────────────╯
 
   ┌───────────────────────────────────────────────────────────────┐
-  │  🔧 WORKSPACE DETECTION (auto-initializes .cvc/ if needed)    │
+  │  ℹ️  HOW MCP WORKS:                                            │
   │                                                               │
-  │  The server auto-detects your project workspace using:       │
-  │    1. CVC_WORKSPACE env var (highest priority)                │
-  │    2. Walk up from cwd to find .cvc, .git, pyproject.toml     │
-  │    3. IDE-specific env vars (CODEX_WORKSPACE_ROOT, etc.)      │
+  │  1. Your IDE (VS Code/Windsurf/Antigravity) automatically     │
+  │     launches 'cvc mcp' as a BACKGROUND PROCESS               │
   │                                                               │
-  │  Or use cvc_set_workspace tool to manually override.          │
+  │  2. The background server connects to your AI assistant       │
+  │     (Copilot/Cascade) and provides CVC tools                  │
+  │                                                               │
+  │  3. You use CVC by asking your AI assistant in chat:          │
+  │     "Show me the CVC status" or "Commit this conversation"    │
+  │                                                               │
+  │  ❌ You do NOT need to run 'cvc mcp' in a terminal!           │
+  │  ✅ Just configure mcp.json and restart your IDE              │
   └───────────────────────────────────────────────────────────────┘
 
   ┌───────────────────────────────────────────────────────────────┐
-  │  📝 IDE CONFIGURATION EXAMPLES:                               │
+  │  📝 QUICK SETUP (if you haven't yet):                         │
   │                                                               │
-  │  VS Code - User Settings (settings.json):                     │
-  │    "mcp": {{                                                   │
-  │      "servers": {{                                             │
-  │        "cvc": {{                                               │
-  │          "command": "cvc",                                     │
-  │          "args": ["mcp"],                                      │
-  │          "env": {{                                             │
-  │            "CVC_WORKSPACE": "${{workspaceFolder}}"             │
-  │          }}                                                    │
-  │        }}                                                      │
-  │      }}                                                        │
-  │    }}                                                          │
+  │  1. Create/edit: C:\\Users\\<you>\\AppData\\Roaming\\Code\\User\\mcp.json │
+  │     (or ~/.config/Code/User/mcp.json on Linux/Mac)            │
   │                                                               │
-  │  VS Code - Workspace (.vscode/mcp.json):                      │
-  │    {{                                                          │
-  │      "servers": {{                                             │
-  │        "cvc": {{                                               │
-  │          "command": "cvc",                                     │
-  │          "args": ["mcp"]                                       │
-  │        }}                                                      │
-  │      }}                                                        │
-  │    }}                                                          │
-  │    (auto-detects workspace from .vscode location)             │
+  │  2. Add this configuration:                                   │
   │                                                               │
-  │  Cursor / Windsurf (.cursor/mcp.json or IDE settings):        │
-  │    {{                                                          │
-  │      "mcpServers": {{                                          │
-  │        "cvc": {{                                               │
-  │          "command": "cvc",                                     │
-  │          "args": ["mcp"],                                      │
-  │          "env": {{                                             │
-  │            "CVC_WORKSPACE": "/absolute/path/to/your/project"   │
-  │          }}                                                    │
-  │        }}                                                      │
-  │      }}                                                        │
-  │    }}                                                          │
+  │     {{                                                         │
+  │       "servers": {{                                            │
+  │         "cvc": {{                                              │
+  │           "command": "cvc",                                    │
+  │           "args": ["mcp"],                                     │
+  │           "type": "stdio"                                      │
+  │         }}                                                     │
+  │       }},                                                      │
+  │       "inputs": []                                             │
+  │     }}                                                         │
+  │                                                               │
+  │  3. Restart VS Code (Ctrl+Shift+P → "Reload Window")          │
+  │                                                               │
+  │  4. Open Copilot Chat and ask: "What CVC tools do you have?"  │
+  │                                                               │
+  │  ✅ That's it! CVC is now running in the background.          │
   └───────────────────────────────────────────────────────────────┘
 
   ┌───────────────────────────────────────────────────────────────┐
-  │  🛠️  AVAILABLE TOOLS (10 total):                              │
+  │  🛠️  AVAILABLE TOOLS (9 total):                               │
   │                                                               │
+  │    • cvc_set_workspace   — Set project directory              │
   │    • cvc_status          — Show branch, HEAD, context size    │
   │    • cvc_commit          — Save conversation checkpoint       │
+  │    • cvc_get_context     — Read saved context from commits    │
+  │    • cvc_log             — View commit history                │
   │    • cvc_branch          — Create cognitive branch            │
   │    • cvc_merge           — Merge branches                     │
   │    • cvc_restore         — Time-travel to commit              │
-  │    • cvc_log             — View commit history                │
-  │    • cvc_capture_context — Manually save conversation         │
-  │    • cvc_set_workspace   — Override workspace path            │
-  │    • cvc_get_context     — Read saved context from commits    │
+  │    • cvc_capture_context — Manually save specific messages    │
   └───────────────────────────────────────────────────────────────┘
 
-  💡 TIP: For automatic context capture, use 'cvc serve' with
-      Continue.dev or Cline extensions. MCP mode requires manual
-      capture via cvc_capture_context tool.
+  ┌───────────────────────────────────────────────────────────────┐
+  │  🚀 GETTING STARTED:                                          │
+  │                                                               │
+  │  After setup, just use your AI assistant normally:            │
+  │                                                               │
+  │    You: "Set the CVC workspace to E:\\Projects\\my-app"       │
+  │    AI:  ✅ Workspace set to E:\\Projects\\my-app               │
+  │                                                               │
+  │    You: "Show me the CVC status"                              │
+  │    AI:  📊 Branch: main, HEAD: 60ad7bef, Context: 5 msgs      │
+  │                                                               │
+  │    You: "Commit this conversation about the API"              │
+  │    AI:  ✅ Committed 60ad7bef: API implementation              │
+  │                                                               │
+  │  📖 Full docs: https://github.com/mannuking/AI-Cognitive-Version-Control │
+  └───────────────────────────────────────────────────────────────┘
 
-  Or use SSE transport for HTTP-based integration:
-    cvc mcp --transport sse
+  ┌───────────────────────────────────────────────────────────────┐
+  │  🔧 ADVANCED OPTIONS:                                         │
+  │                                                               │
+  │  For HTTP-based clients, use SSE transport:                   │
+  │    cvc mcp --transport sse --host 127.0.0.1 --port 8080       │
+  │                                                               │
+  │  For automatic context capture (no manual commits):           │
+  │    cvc serve  (proxy mode for Continue.dev/Cline)            │
+  │                                                               │
+  │  For interactive CLI agent with full CVC features:            │
+  │    cvc  (or: cvc agent)                                       │
+  └───────────────────────────────────────────────────────────────┘
 
+  ⚠️  THIS TERMINAL INSTANCE IS NOT CONNECTED TO YOUR IDE
+  
+  If you configured mcp.json correctly and restarted VS Code,
+  the MCP server is ALREADY RUNNING in the background.
+  
+  You can close this terminal (Ctrl+C) and use CVC through
+  your AI assistant in VS Code/Windsurf/Antigravity.
 
-  The server is now listening on stdin for JSON-RPC messages.
-  Press Ctrl+C to stop.
+  Press Ctrl+C to stop this unnecessary terminal instance.
 
 """)
     sys.stderr.flush()

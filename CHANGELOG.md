@@ -5,6 +5,44 @@ All notable changes to Cognitive Version Control (CVC) will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-02-17
+
+### 🎯 USER EXPERIENCE IMPROVEMENTS
+
+This release improves the MCP server startup messaging to eliminate confusion about manual execution.
+
+**The Problem**:
+- Users ran `cvc mcp` manually in terminal and saw "awaiting IDE connection"
+- This caused confusion - they thought the server wasn't working
+- In reality, VS Code spawns its own background MCP process automatically
+- The terminal instance is unnecessary and confusing
+
+**The Solution**:
+- ✅ **Clear warning banner**: "⚠️ YOU DON'T NEED TO RUN THIS COMMAND MANUALLY!"
+- ✅ **Detailed explanation**: How MCP works with IDE background processes
+- ✅ **Quick setup guide**: Step-by-step mcp.json configuration
+- ✅ **Better final message**: Explains the terminal instance is not needed
+- ✅ **Usage examples**: Shows how to use CVC through AI assistant
+
+### Changed
+- **Startup banner** (`_print_stdio_guidance()`):
+  - Added prominent warning about manual execution
+  - Explained MCP background process architecture
+  - Included quick setup guide for first-time users
+  - Added usage examples showing AI assistant interaction
+  - Removed confusing "awaiting IDE connection" message
+  
+- **Final message** after banner:
+  - Changed from "awaiting IDE connection" to clear explanation
+  - Tells users the terminal instance is not needed
+  - Explains CVC is already working if configured correctly
+  - Encourages users to close terminal and use AI assistant
+
+### Improved
+- **User onboarding**: First-time users get clear setup instructions
+- **Error prevention**: Users won't waste time waiting for terminal connection
+- **Documentation clarity**: Banner now serves as inline documentation
+
 ## [1.4.1] - 2026-02-17
 
 ### 🌍 MULTI-WORKSPACE SUPPORT IMPROVEMENTS
