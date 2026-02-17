@@ -404,6 +404,8 @@ class CvcGroup(click.Group):
             ("stats", "Analytics dashboard (tokens, costs, patterns)"),
             ("compact --smart", "AI-powered context compression"),
             ("timeline", "ASCII timeline of all AI interactions"),
+            ("sync push/pull", "Push/pull AI context to team remote"),
+            ("audit", "Security audit trail (compliance-ready)"),
             ("sessions", "View Time Machine session history"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
@@ -2922,6 +2924,336 @@ def timeline(limit: int) -> None:
         color = branch_color_map.get(primary, "#CC3333")
         console.print(f"  [{color}]  │   │[/{color}]")
         console.print(f"  [{color}]  ╰───╯[/{color}]  [dim]({result['total_commits']} commits total)[/dim]")
+
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# sync (push/pull context to remote repository)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("action", type=click.Choice(["push", "pull", "status", "remote"], case_sensitive=False))
+@click.argument("remote_path", required=False, default=None)
+@click.option("--name", "-n", default="origin", help="Remote name (default: origin).")
+@click.option("--branch", "-b", default=None, help="Branch to sync (default: active branch).")
+def sync(action: str, remote_path: str | None, name: str, branch: str | None) -> None:
+    """Push/pull cognitive context to a remote repository.
+
+    \b
+    Share AI knowledge across teams. Like git push/pull but for
+    AI conversation context, decisions, and reasoning.
+
+    \b
+    Actions:
+      push     Push local commits to a remote CVC repository
+      pull     Pull remote commits into local repository
+      status   Show sync status with configured remotes
+      remote   Add/show a named remote (requires path argument)
+
+    \b
+    Examples:
+      cvc sync push /shared/team-cvc                  # Push to shared dir
+      cvc sync pull /shared/team-cvc                  # Pull from shared dir
+      cvc sync push //server/share/cvc --name team    # Named remote
+      cvc sync pull //server/share/cvc --name team
+      cvc sync remote /shared/team-cvc --name origin  # Register a remote
+      cvc sync status                                 # Show sync status
+    """
+    engine, db = _get_engine()
+
+    if action == "status":
+        result = engine.sync_status(remote_name=name)
+        console.print()
+
+        if not result.get("configured"):
+            _warn("No sync remotes configured.")
+            _hint(
+                "Set up a remote:\n"
+                "  [bold]cvc sync push /path/to/shared/repo[/bold]\n"
+                "  [bold]cvc sync remote /path/to/shared/repo --name origin[/bold]"
+            )
+        else:
+            remotes = result.get("remotes", [])
+            remote_table = Table(
+                box=box.ROUNDED,
+                border_style="dim",
+                show_header=True,
+                header_style="bold #CC3333",
+                title="[bold]Sync Remotes[/bold]",
+            )
+            remote_table.add_column("Name", style="bold")
+            remote_table.add_column("Path")
+            remote_table.add_column("Last Push", style="#55AA55")
+            remote_table.add_column("Last Pull", style="#CCAA44")
+            remote_table.add_column("Last Sync")
+
+            from datetime import datetime
+            for r in remotes:
+                last_sync = ""
+                if r.get("last_sync_at"):
+                    try:
+                        last_sync = datetime.fromtimestamp(r["last_sync_at"]).strftime("%Y-%m-%d %H:%M")
+                    except Exception:
+                        last_sync = "?"
+                remote_table.add_row(
+                    r["name"],
+                    r["remote_path"],
+                    (r.get("last_push_hash") or "—")[:12],
+                    (r.get("last_pull_hash") or "—")[:12],
+                    last_sync or "—",
+                )
+            console.print(remote_table)
+        console.print()
+        db.close()
+        return
+
+    if action == "remote":
+        if not remote_path:
+            _error("Remote path is required.")
+            _hint("Usage: [bold]cvc sync remote /path/to/repo --name origin[/bold]")
+            db.close()
+            return
+
+        resolved = Path(remote_path).resolve()
+        db.index.upsert_remote(name, str(resolved))
+        _success(f"Registered remote '[bold]{name}[/bold]' → {resolved}")
+        console.print()
+        db.close()
+        return
+
+    # push or pull
+    if not remote_path:
+        # Try to use the named remote
+        remote_info = db.index.get_remote(name)
+        if remote_info:
+            remote_path = remote_info["remote_path"]
+        else:
+            _error("Remote path is required (or configure a named remote first).")
+            _hint(
+                "Usage: [bold]cvc sync push /path/to/shared/repo[/bold]\n"
+                "   or: [bold]cvc sync remote /path --name origin[/bold] first"
+            )
+            db.close()
+            return
+
+    console.print()
+    console.print(
+        f"  [bold #CC3333]Syncing ({action})[/bold #CC3333]\n"
+        f"  [dim]Remote[/dim]    [bold]{name}[/bold] ({remote_path})\n"
+        f"  [dim]Branch[/dim]    {branch or engine.active_branch}"
+    )
+    console.print()
+
+    if action == "push":
+        result = engine.sync_push(remote_path, remote_name=name, branch=branch)
+    else:
+        result = engine.sync_pull(remote_path, remote_name=name, branch=branch)
+
+    if result.success:
+        detail = result.detail
+        console.print(
+            Panel(
+                f"  [dim]Remote[/dim]     [bold]{detail.get('remote_name', name)}[/bold]\n"
+                f"  [dim]Path[/dim]       {detail.get('remote_path', remote_path)}\n"
+                f"  [dim]Commits[/dim]    [bold #55AA55]{detail.get('pushed_commits', detail.get('pulled_commits', 0))}[/bold #55AA55]\n"
+                f"  [dim]Blobs[/dim]      {detail.get('pushed_blobs', detail.get('pulled_blobs', 0))}\n"
+                f"  [dim]HEAD[/dim]       [#CCAA44]{(detail.get('head_hash', detail.get('remote_head', ''))[:12])}[/#CCAA44]",
+                border_style="#5C1010",
+                title=f"[bold #55AA55]✓ Sync {action.title()} Complete[/bold #55AA55]",
+                padding=(1, 2),
+            )
+        )
+        _hint(f"Your team can now {'pull' if action == 'push' else 'use'} this context.")
+    else:
+        _error(result.message)
+
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# audit (security audit trail)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--type", "-t", "event_type", default=None,
+              type=click.Choice(["commit", "merge", "restore", "compact", "inject", "sync_push", "sync_pull"], case_sensitive=False),
+              help="Filter by event type.")
+@click.option("--risk", "-r", default=None,
+              type=click.Choice(["low", "medium", "high", "critical"], case_sensitive=False),
+              help="Filter by risk level.")
+@click.option("--since", "-s", "since_days", default=None, type=int, help="Show events from last N days.")
+@click.option("-n", "--limit", default=30, type=int, help="Max events to show.")
+@click.option("--export-json", is_flag=True, help="Export audit log as JSON file.")
+@click.option("--export-csv", is_flag=True, help="Export audit log as CSV file.")
+@click.option("--summary", is_flag=True, help="Show summary dashboard only.")
+def audit(event_type: str | None, risk: str | None, since_days: int | None,
+          limit: int, export_json: bool, export_csv: bool, summary: bool) -> None:
+    """Security audit trail of every AI-generated code decision.
+
+    \b
+    Enterprise-grade compliance: every AI interaction is logged with
+    who, what, when, which model, risk level, and affected files.
+
+    \b
+    Features:
+      • Complete audit trail of all AI decisions
+      • Risk-level classification (low/medium/high/critical)
+      • Code generation tracking
+      • Compliance scoring
+      • Export to JSON/CSV for compliance reporting
+
+    \b
+    Examples:
+      cvc audit                           # View recent audit events
+      cvc audit --summary                 # Compliance dashboard
+      cvc audit --risk high               # Filter high-risk events
+      cvc audit --type commit --since 7   # Commits from last 7 days
+      cvc audit --export-json             # Export for compliance review
+      cvc audit --export-csv              # Export as spreadsheet
+    """
+    engine, db = _get_engine()
+
+    export_format = None
+    if export_json:
+        export_format = "json"
+    elif export_csv:
+        export_format = "csv"
+
+    result = engine.audit(
+        event_type=event_type,
+        risk_level=risk,
+        since_days=since_days,
+        limit=limit,
+        export_format=export_format,
+    )
+
+    console.print()
+
+    # Summary dashboard
+    audit_summary = result.get("summary", {})
+    score = result.get("compliance_score", 100)
+    assessment = result.get("risk_assessment", "")
+
+    # Compliance score color
+    if score >= 90:
+        score_color = "#55AA55"
+        score_icon = "✓"
+    elif score >= 70:
+        score_color = "#CCAA44"
+        score_icon = "⚠"
+    else:
+        score_color = "red"
+        score_icon = "✗"
+
+    console.print(
+        Panel(
+            f"  [dim]Total Events[/dim]       [bold]{audit_summary.get('total_events', 0)}[/bold]\n"
+            f"  [dim]Compliance Score[/dim]   [{score_color}][bold]{score_icon} {score}%[/bold][/{score_color}]\n"
+            f"  [dim]Assessment[/dim]         {assessment}\n"
+            f"  [dim]Code Gen Events[/dim]    {audit_summary.get('code_generation_events', 0)}\n"
+            f"  [dim]Total Tokens[/dim]       {audit_summary.get('total_tokens_audited', 0):,}",
+            border_style="#5C1010",
+            title="[bold #CC3333]🛡️ Security Audit Dashboard[/bold #CC3333]",
+            padding=(1, 2),
+        )
+    )
+
+    if summary:
+        # Show breakdowns
+        by_type = audit_summary.get("events_by_type", {})
+        if by_type:
+            type_table = Table(
+                box=box.SIMPLE, border_style="dim",
+                title="[bold]Events by Type[/bold]", show_header=True, header_style="dim",
+            )
+            type_table.add_column("Type", style="bold")
+            type_table.add_column("Count", justify="right")
+            for t, c in by_type.items():
+                type_table.add_row(t, str(c))
+            console.print(type_table)
+
+        by_risk = audit_summary.get("events_by_risk", {})
+        if by_risk:
+            risk_colors = {"low": "#55AA55", "medium": "#CCAA44", "high": "red", "critical": "bold red"}
+            risk_table = Table(
+                box=box.SIMPLE, border_style="dim",
+                title="[bold]Events by Risk Level[/bold]", show_header=True, header_style="dim",
+            )
+            risk_table.add_column("Risk", style="bold")
+            risk_table.add_column("Count", justify="right")
+            for r, c in by_risk.items():
+                color = risk_colors.get(r, "white")
+                risk_table.add_row(f"[{color}]{r}[/{color}]", str(c))
+            console.print(risk_table)
+
+        by_provider = audit_summary.get("events_by_provider", {})
+        if by_provider:
+            console.print("  [bold]By Provider:[/bold]")
+            for p, c in by_provider.items():
+                console.print(f"    [dim]→[/dim] {p}: {c}")
+            console.print()
+
+        console.print()
+        db.close()
+        return
+
+    # Event list
+    events = result.get("events", [])
+    if not events:
+        _warn("No audit events found matching your filters.")
+        _hint("Events are recorded automatically. Try: [bold]cvc commit -m 'test'[/bold] first.")
+        console.print()
+        db.close()
+        return
+
+    RISK_ICONS = {"low": "[#55AA55]○[/#55AA55]", "medium": "[#CCAA44]◐[/#CCAA44]", "high": "[red]●[/red]", "critical": "[bold red]◉[/bold red]"}
+    EVENT_ICONS = {
+        "commit": "💾", "merge": "🔀", "restore": "⏪",
+        "compact": "📦", "inject": "💉", "sync_push": "⬆️", "sync_pull": "⬇️",
+    }
+
+    event_table = Table(
+        box=box.ROUNDED,
+        border_style="dim",
+        show_header=True,
+        header_style="bold #CC3333",
+        title="[bold]Audit Trail[/bold]",
+    )
+    event_table.add_column("", width=3)
+    event_table.add_column("Time", style="dim", width=16)
+    event_table.add_column("Event", style="bold", width=10)
+    event_table.add_column("Commit", style="#CCAA44", width=12)
+    event_table.add_column("Agent", width=8)
+    event_table.add_column("Provider", width=12)
+    event_table.add_column("Risk", width=8)
+    event_table.add_column("Code", width=4)
+
+    for e in events:
+        risk_icon = RISK_ICONS.get(e.get("risk_level", "low"), "?")
+        evt_icon = EVENT_ICONS.get(e.get("event_type", ""), "📋")
+        code_flag = "[#55AA55]✓[/#55AA55]" if e.get("code_generated") else "[dim]—[/dim]"
+        event_table.add_row(
+            risk_icon,
+            e.get("time_str", "?"),
+            f"{evt_icon} {e.get('event_type', '?')}",
+            (e.get("commit_hash") or "—")[:12],
+            e.get("agent_id", "?"),
+            e.get("provider", "—") or "—",
+            e.get("risk_level", "?"),
+            code_flag,
+        )
+
+    console.print(event_table)
+
+    # Export notification
+    export_path = result.get("export_path")
+    if export_path:
+        console.print()
+        _success(f"Exported audit log to [bold]{export_path}[/bold]")
+        _hint("Share this file with your compliance team for review.")
 
     console.print()
     db.close()

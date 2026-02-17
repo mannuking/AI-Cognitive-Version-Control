@@ -261,6 +261,24 @@ class CVCEngine:
 
         logger.info("COMMIT %s on %s: %s", commit.short_hash, self._active_branch, commit.message[:60])
 
+        # Audit trail
+        has_code = any("```" in m.content for m in self._context_window)
+        source_files = list(blob.source_files.keys()) if blob.source_files else []
+        self.db.index.insert_audit_event(
+            event_type="commit",
+            commit_hash=commit_hash,
+            branch=self._active_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail={"message": commit.message[:200], "type": request.commit_type.value, "tags": request.tags},
+            source_mode=self.config.mode,
+            risk_level="medium" if has_code else "low",
+            code_generated=has_code,
+            files_affected=source_files,
+            token_count=blob.token_count,
+        )
+
         return CVCOperationResponse(
             success=True,
             operation="commit",
@@ -445,6 +463,19 @@ class CVCEngine:
 
         logger.info("MERGE %s → %s as %s", request.source_branch, request.target_branch, commit_hash[:12])
 
+        # Audit trail
+        self.db.index.insert_audit_event(
+            event_type="merge",
+            commit_hash=commit_hash,
+            branch=request.target_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail={"source": request.source_branch, "target": request.target_branch, "lca": lca_hash},
+            source_mode=self.config.mode,
+            risk_level="medium",
+        )
+
         return CVCOperationResponse(
             success=True,
             operation="merge",
@@ -518,6 +549,19 @@ class CVCEngine:
         )
 
         logger.info("RESTORE to %s on %s", commit.short_hash, self._active_branch)
+
+        # Audit trail
+        self.db.index.insert_audit_event(
+            event_type="restore",
+            commit_hash=commit.commit_hash,
+            branch=self._active_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail={"restored_to": commit.short_hash, "message": commit.message[:200]},
+            source_mode=self.config.mode,
+            risk_level="high",
+        )
 
         return CVCOperationResponse(
             success=True,
@@ -1424,3 +1468,461 @@ class CVCEngine:
             "events": events,
             "active_branch": self._active_branch,
         }
+
+    # ======================================================================
+    # 6.1  SYNC (Push/Pull Context to Remote Repository)
+    # ======================================================================
+
+    def sync_push(
+        self,
+        remote_path: str,
+        remote_name: str = "origin",
+        branch: str | None = None,
+    ) -> CVCOperationResponse:
+        """
+        Push cognitive commits and blobs to a remote CVC repository.
+
+        The remote is another directory containing a .cvc/ structure.
+        This copies all commits and blobs that the remote doesn't have.
+        Teams can share AI knowledge by pushing to a shared directory,
+        network drive, or mounted cloud storage.
+        """
+        import shutil
+
+        target_branch = branch or self._active_branch
+        remote = Path(remote_path).resolve()
+
+        # Auto-initialise remote if it's an empty/new directory
+        remote_cvc = remote / ".cvc"
+        remote_objects = remote_cvc / "objects"
+        remote_db_path = remote_cvc / "cvc.db"
+
+        if not remote.exists():
+            remote.mkdir(parents=True, exist_ok=True)
+
+        if not remote_cvc.exists():
+            # Initialise the remote as a bare CVC repository
+            remote_cvc.mkdir(parents=True, exist_ok=True)
+            remote_objects.mkdir(parents=True, exist_ok=True)
+            (remote_cvc / "branches").mkdir(parents=True, exist_ok=True)
+            logger.info("Initialised remote CVC repository at %s", remote)
+
+        # Open remote database
+        from cvc.core.database import IndexDB, BlobStore
+        remote_index = IndexDB(remote_db_path)
+        remote_blobs = BlobStore(remote_objects)
+
+        # Get all commits on the target branch
+        bp = self.db.index.get_branch(target_branch)
+        if bp is None:
+            remote_index.close()
+            return CVCOperationResponse(
+                success=False, operation="sync_push",
+                message=f"Branch '{target_branch}' not found.",
+            )
+
+        local_commits = self.db.index.get_ancestors(bp.head_hash, limit=10000)
+
+        pushed_commits = 0
+        pushed_blobs = 0
+
+        for commit in reversed(local_commits):  # Push oldest first
+            # Check if remote already has this commit
+            if remote_index.get_commit(commit.commit_hash) is not None:
+                continue
+
+            # Transfer the blob
+            raw_row = self.db.index.get_raw_commit_row(commit.commit_hash)
+            if raw_row is None:
+                continue
+            blob_key = raw_row["blob_key"]
+
+            # Transfer blob data if remote doesn't have it
+            if not remote_blobs.exists(blob_key):
+                blob_path = self.db.blobs._path_for(blob_key)
+                if blob_path.exists():
+                    remote_blob_path = remote_blobs._path_for(blob_key)
+                    remote_blob_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(blob_path), str(remote_blob_path))
+                    pushed_blobs += 1
+
+            # Insert commit into remote index
+            remote_index._conn.execute(
+                """INSERT OR REPLACE INTO commits
+                   (commit_hash, parent_hashes, commit_type, message,
+                    is_delta, anchor_hash, blob_key, metadata_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    raw_row["commit_hash"],
+                    raw_row["parent_hashes"],
+                    raw_row["commit_type"],
+                    raw_row["message"],
+                    raw_row["is_delta"],
+                    raw_row["anchor_hash"],
+                    raw_row["blob_key"],
+                    raw_row["metadata_json"],
+                    raw_row["created_at"],
+                ),
+            )
+            remote_index._conn.commit()
+            pushed_commits += 1
+
+        # Update or create branch pointer on remote
+        remote_bp = remote_index.get_branch(target_branch)
+        if remote_bp is None:
+            remote_index.upsert_branch(BranchPointer(
+                name=target_branch,
+                head_hash=bp.head_hash,
+                description=f"Synced from {self.config.agent_id}",
+            ))
+        else:
+            remote_index.advance_head(target_branch, bp.head_hash)
+
+        remote_index.close()
+
+        # Register/update the remote in local db
+        self.db.index.upsert_remote(
+            remote_name, str(remote), last_push=bp.head_hash,
+        )
+
+        # Audit trail
+        self.db.index.insert_audit_event(
+            event_type="sync_push",
+            commit_hash=bp.head_hash,
+            branch=target_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail={
+                "remote_name": remote_name,
+                "remote_path": str(remote),
+                "pushed_commits": pushed_commits,
+                "pushed_blobs": pushed_blobs,
+            },
+            source_mode=self.config.mode,
+        )
+
+        return CVCOperationResponse(
+            success=True,
+            operation="sync_push",
+            commit_hash=bp.head_hash,
+            branch=target_branch,
+            message=(
+                f"Pushed {pushed_commits} commit(s) and {pushed_blobs} blob(s) "
+                f"to '{remote_name}' ({remote})"
+            ),
+            detail={
+                "remote_name": remote_name,
+                "remote_path": str(remote),
+                "pushed_commits": pushed_commits,
+                "pushed_blobs": pushed_blobs,
+                "head_hash": bp.head_hash,
+            },
+        )
+
+    def sync_pull(
+        self,
+        remote_path: str,
+        remote_name: str = "origin",
+        branch: str | None = None,
+    ) -> CVCOperationResponse:
+        """
+        Pull cognitive commits and blobs from a remote CVC repository.
+
+        The remote is another directory containing a .cvc/ structure.
+        This imports commits and blobs that the local repo doesn't have,
+        and fast-forwards the local branch if possible.
+        """
+        import shutil
+
+        target_branch = branch or self._active_branch
+        remote = Path(remote_path).resolve()
+        remote_cvc = remote / ".cvc"
+        remote_db_path = remote_cvc / "cvc.db"
+        remote_objects = remote_cvc / "objects"
+
+        if not remote_cvc.is_dir():
+            return CVCOperationResponse(
+                success=False, operation="sync_pull",
+                message=f"No .cvc/ directory at '{remote}'. Not a CVC repository.",
+            )
+
+        # Open remote database (read-only)
+        from cvc.core.database import IndexDB, BlobStore
+        remote_index = IndexDB(remote_db_path)
+        remote_blobs = BlobStore(remote_objects)
+
+        remote_bp = remote_index.get_branch(target_branch)
+        if remote_bp is None:
+            remote_index.close()
+            return CVCOperationResponse(
+                success=False, operation="sync_pull",
+                message=f"Branch '{target_branch}' not found on remote.",
+            )
+
+        # Get all remote commits on the branch
+        remote_commits = remote_index.get_ancestors(remote_bp.head_hash, limit=10000)
+
+        pulled_commits = 0
+        pulled_blobs = 0
+
+        for commit in reversed(remote_commits):  # Import oldest first
+            if self.db.index.get_commit(commit.commit_hash) is not None:
+                continue
+
+            raw_row = remote_index.get_raw_commit_row(commit.commit_hash)
+            if raw_row is None:
+                continue
+            blob_key = raw_row["blob_key"]
+
+            # Transfer blob if we don't have it
+            if not self.db.blobs.exists(blob_key):
+                remote_blob_path = remote_blobs._path_for(blob_key)
+                if remote_blob_path.exists():
+                    local_blob_path = self.db.blobs._path_for(blob_key)
+                    local_blob_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(remote_blob_path), str(local_blob_path))
+                    pulled_blobs += 1
+
+            # Insert commit into local index
+            self.db.index._conn.execute(
+                """INSERT OR REPLACE INTO commits
+                   (commit_hash, parent_hashes, commit_type, message,
+                    is_delta, anchor_hash, blob_key, metadata_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    raw_row["commit_hash"],
+                    raw_row["parent_hashes"],
+                    raw_row["commit_type"],
+                    raw_row["message"],
+                    raw_row["is_delta"],
+                    raw_row["anchor_hash"],
+                    raw_row["blob_key"],
+                    raw_row["metadata_json"],
+                    raw_row["created_at"],
+                ),
+            )
+            self.db.index._conn.commit()
+            pulled_commits += 1
+
+        # Fast-forward local branch if remote is ahead
+        local_bp = self.db.index.get_branch(target_branch)
+        if local_bp is not None:
+            # Check if remote head is a descendant of local head
+            remote_ancestors = {c.commit_hash for c in remote_commits}
+            if local_bp.head_hash in remote_ancestors or local_bp.head_hash == remote_bp.head_hash:
+                if remote_bp.head_hash != local_bp.head_hash:
+                    self.db.index.advance_head(target_branch, remote_bp.head_hash)
+                    # Re-hydrate context from new HEAD
+                    if target_branch == self._active_branch:
+                        self._hydrate_from_head()
+        else:
+            # Create branch locally
+            self.db.index.upsert_branch(BranchPointer(
+                name=target_branch,
+                head_hash=remote_bp.head_hash,
+                description=f"Pulled from {remote_name}",
+            ))
+
+        remote_index.close()
+
+        # Register/update the remote
+        self.db.index.upsert_remote(
+            remote_name, str(remote), last_pull=remote_bp.head_hash,
+        )
+
+        # Audit trail
+        self.db.index.insert_audit_event(
+            event_type="sync_pull",
+            commit_hash=remote_bp.head_hash,
+            branch=target_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail={
+                "remote_name": remote_name,
+                "remote_path": str(remote),
+                "pulled_commits": pulled_commits,
+                "pulled_blobs": pulled_blobs,
+            },
+            source_mode=self.config.mode,
+        )
+
+        return CVCOperationResponse(
+            success=True,
+            operation="sync_pull",
+            commit_hash=remote_bp.head_hash,
+            branch=target_branch,
+            message=(
+                f"Pulled {pulled_commits} commit(s) and {pulled_blobs} blob(s) "
+                f"from '{remote_name}' ({remote})"
+            ),
+            detail={
+                "remote_name": remote_name,
+                "remote_path": str(remote),
+                "pulled_commits": pulled_commits,
+                "pulled_blobs": pulled_blobs,
+                "remote_head": remote_bp.head_hash,
+            },
+        )
+
+    def sync_status(self, remote_name: str = "origin") -> dict[str, Any]:
+        """Show the sync status with a remote."""
+        remote_info = self.db.index.get_remote(remote_name)
+        all_remotes = self.db.index.list_remotes()
+
+        if remote_info is None and not all_remotes:
+            return {
+                "configured": False,
+                "remotes": [],
+                "message": "No sync remotes configured. Use 'cvc sync push <path>' to set one up.",
+            }
+
+        return {
+            "configured": True,
+            "remotes": all_remotes,
+            "active_remote": remote_info,
+        }
+
+    # ======================================================================
+    # 6.2  AUDIT (Security Audit Trail)
+    # ======================================================================
+
+    def audit_log_event(
+        self,
+        event_type: str,
+        commit_hash: str | None = None,
+        action_detail: dict[str, Any] | None = None,
+        risk_level: str = "low",
+        code_generated: bool = False,
+        files_affected: list[str] | None = None,
+        token_count: int = 0,
+    ) -> int:
+        """
+        Record an event in the security audit trail.
+
+        This is called automatically by commit/merge/restore/inject/sync,
+        but can also be called manually for custom audit entries.
+        """
+        return self.db.index.insert_audit_event(
+            event_type=event_type,
+            commit_hash=commit_hash,
+            branch=self._active_branch,
+            agent_id=self.config.agent_id,
+            provider=self.config.provider,
+            model=self.config.model,
+            action_detail=action_detail,
+            source_mode=self.config.mode,
+            risk_level=risk_level,
+            code_generated=code_generated,
+            files_affected=files_affected,
+            token_count=token_count,
+        )
+
+    def audit(
+        self,
+        event_type: str | None = None,
+        risk_level: str | None = None,
+        since_days: int | None = None,
+        limit: int = 50,
+        export_format: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Query the security audit trail with optional filters.
+
+        Returns structured audit data including events, summary statistics,
+        compliance score, and optionally exports as JSON or CSV.
+        """
+        from datetime import datetime
+
+        since_ts = None
+        if since_days is not None:
+            since_ts = time.time() - (since_days * 86400)
+
+        events = self.db.index.query_audit_log(
+            event_type=event_type,
+            risk_level=risk_level,
+            since=since_ts,
+            limit=limit,
+        )
+
+        summary = self.db.index.audit_summary()
+
+        # Compute compliance score
+        total_events = summary.get("total_events", 0)
+        if total_events == 0:
+            compliance_score = 100.0
+            risk_assessment = "No audit events recorded yet."
+        else:
+            risk_counts = summary.get("events_by_risk", {})
+            critical = risk_counts.get("critical", 0)
+            high = risk_counts.get("high", 0)
+            medium = risk_counts.get("medium", 0)
+            low = risk_counts.get("low", 0)
+
+            # Weighted risk: critical=10, high=5, medium=2, low=0
+            risk_score = (critical * 10 + high * 5 + medium * 2) / max(total_events, 1)
+            compliance_score = max(0.0, 100.0 - risk_score * 10)
+
+            if critical > 0:
+                risk_assessment = f"CRITICAL: {critical} critical event(s) require immediate review."
+            elif high > 0:
+                risk_assessment = f"WARNING: {high} high-risk event(s) flagged for review."
+            elif medium > 0:
+                risk_assessment = f"MODERATE: {medium} medium-risk event(s). Routine review recommended."
+            else:
+                risk_assessment = "GOOD: All events are low-risk. No action needed."
+
+        # Format events for display
+        formatted_events = []
+        for e in events:
+            try:
+                dt = datetime.fromtimestamp(e["created_at"])
+                time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                time_str = "unknown"
+
+            formatted_events.append({
+                **e,
+                "time_str": time_str,
+            })
+
+        result = {
+            "events": formatted_events,
+            "summary": summary,
+            "compliance_score": round(compliance_score, 1),
+            "risk_assessment": risk_assessment,
+            "filter": {
+                "event_type": event_type,
+                "risk_level": risk_level,
+                "since_days": since_days,
+                "limit": limit,
+            },
+        }
+
+        # Export if requested
+        if export_format == "json":
+            export_path = Path(f"cvc-audit-{int(time.time())}.json")
+            export_path.write_text(
+                json.dumps(result, indent=2, default=str),
+                encoding="utf-8",
+            )
+            result["export_path"] = str(export_path.resolve())
+
+        elif export_format == "csv":
+            export_path = Path(f"cvc-audit-{int(time.time())}.csv")
+            import csv
+            with open(export_path, "w", newline="", encoding="utf-8") as f:
+                if formatted_events:
+                    writer = csv.DictWriter(f, fieldnames=[
+                        "audit_id", "event_type", "commit_hash", "branch",
+                        "agent_id", "provider", "model", "source_mode",
+                        "user_identity", "machine_id", "risk_level",
+                        "code_generated", "token_count", "time_str",
+                    ])
+                    writer.writeheader()
+                    for e in formatted_events:
+                        writer.writerow({k: e.get(k, "") for k in writer.fieldnames})
+            result["export_path"] = str(export_path.resolve())
+
+        return result

@@ -596,6 +596,110 @@ MCP_TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "cvc_sync_push",
+        "description": (
+            "Push cognitive commits and blobs to a remote CVC repository. "
+            "Enables team knowledge sharing by syncing AI context to a shared location. "
+            "Auto-initialises the remote .cvc/ directory if it doesn't exist."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "remote_path": {
+                    "type": "string",
+                    "description": "Absolute path to the remote CVC repository directory.",
+                },
+                "remote_name": {
+                    "type": "string",
+                    "description": "Friendly name for the remote. Default: 'origin'.",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch to push. Default: current branch.",
+                },
+            },
+            "required": ["remote_path"],
+        },
+    },
+    {
+        "name": "cvc_sync_pull",
+        "description": (
+            "Pull cognitive commits and blobs from a remote CVC repository. "
+            "Imports team-shared AI context into the local workspace. "
+            "Fast-forwards the local branch pointer and re-hydrates context."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "remote_path": {
+                    "type": "string",
+                    "description": "Absolute path to the remote CVC repository directory.",
+                },
+                "remote_name": {
+                    "type": "string",
+                    "description": "Friendly name for the remote. Default: 'origin'.",
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch to pull. Default: current branch.",
+                },
+            },
+            "required": ["remote_path"],
+        },
+    },
+    {
+        "name": "cvc_sync_status",
+        "description": (
+            "Show the status of configured sync remotes. "
+            "Lists all remotes with their paths, last push/pull hashes, and last sync timestamps."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "remote_name": {
+                    "type": "string",
+                    "description": "Filter to a specific remote name. Omit to list all.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "cvc_audit",
+        "description": (
+            "Query the security audit trail of AI-generated code decisions. "
+            "Returns compliance-ready records with risk levels, event types, "
+            "provider/model info, and optional JSON/CSV export. "
+            "Includes a compliance score (0-100) and risk assessment."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "event_type": {
+                    "type": "string",
+                    "description": "Filter by event type: commit, merge, restore, compact, code_injection, sync_push, sync_pull.",
+                },
+                "risk_level": {
+                    "type": "string",
+                    "description": "Filter by risk level: low, medium, high, critical.",
+                },
+                "since_days": {
+                    "type": "integer",
+                    "description": "Only show events from the last N days. Default: 30.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of events to return. Default: 100.",
+                },
+                "export_format": {
+                    "type": "string",
+                    "description": "Export format: 'json' or 'csv'. Omit for structured response.",
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 
@@ -939,6 +1043,49 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
             limit = arguments.get("limit", 50)
             timeline_result = engine.timeline(limit=limit)
             return {"success": True, **timeline_result}
+
+        # ── Tier 3: Enterprise / Team ──────────────────────────
+        elif tool_name == "cvc_sync_push":
+            remote_path = arguments["remote_path"]
+            remote_name = arguments.get("remote_name", "origin")
+            branch = arguments.get("branch")
+            result = engine.sync_push(
+                remote_path=remote_path,
+                remote_name=remote_name,
+                branch=branch,
+            )
+            return result.model_dump()
+
+        elif tool_name == "cvc_sync_pull":
+            remote_path = arguments["remote_path"]
+            remote_name = arguments.get("remote_name", "origin")
+            branch = arguments.get("branch")
+            result = engine.sync_pull(
+                remote_path=remote_path,
+                remote_name=remote_name,
+                branch=branch,
+            )
+            return result.model_dump()
+
+        elif tool_name == "cvc_sync_status":
+            remote_name = arguments.get("remote_name")
+            result = engine.sync_status(remote_name=remote_name)
+            return result.model_dump()
+
+        elif tool_name == "cvc_audit":
+            event_type = arguments.get("event_type")
+            risk_level = arguments.get("risk_level")
+            since_days = arguments.get("since_days", 30)
+            limit = arguments.get("limit", 100)
+            export_format = arguments.get("export_format")
+            result = engine.audit(
+                event_type=event_type,
+                risk_level=risk_level,
+                since_days=since_days,
+                limit=limit,
+                export_format=export_format,
+            )
+            return result.model_dump()
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

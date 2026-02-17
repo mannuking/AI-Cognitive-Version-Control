@@ -11,7 +11,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -66,6 +68,41 @@ CREATE INDEX IF NOT EXISTS idx_commits_type    ON commits(commit_type);
 CREATE INDEX IF NOT EXISTS idx_git_links_cvc   ON git_links(cvc_hash);
 """
 
+_AUDIT_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type      TEXT    NOT NULL,           -- 'commit', 'branch', 'merge', 'restore', 'compact', 'inject', 'sync_push', 'sync_pull'
+    commit_hash     TEXT,
+    branch          TEXT,
+    agent_id        TEXT    NOT NULL DEFAULT 'sofia',
+    provider        TEXT,
+    model           TEXT,
+    action_detail   TEXT    NOT NULL DEFAULT '{}',  -- JSON with specifics
+    source_mode     TEXT,                        -- 'cli', 'mcp', 'proxy'
+    user_identity   TEXT,                        -- OS username or configured identity
+    machine_id      TEXT,                        -- Machine hostname
+    risk_level      TEXT    NOT NULL DEFAULT 'low',  -- 'low', 'medium', 'high', 'critical'
+    code_generated  INTEGER NOT NULL DEFAULT 0,  -- Whether AI-generated code was involved
+    files_affected  TEXT    NOT NULL DEFAULT '[]', -- JSON array of file paths
+    token_count     INTEGER NOT NULL DEFAULT 0,
+    created_at      REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sync_remotes (
+    name            TEXT PRIMARY KEY,
+    remote_path     TEXT    NOT NULL,            -- Path or URL to remote CVC repo
+    last_push_hash  TEXT,
+    last_pull_hash  TEXT,
+    last_sync_at    REAL,
+    created_at      REAL    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created  ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_type     ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_risk     ON audit_log(risk_level);
+CREATE INDEX IF NOT EXISTS idx_audit_agent    ON audit_log(agent_id);
+"""
+
 
 # ---------------------------------------------------------------------------
 # Tier 1 — SQLite Index Database
@@ -80,6 +117,7 @@ class IndexDB:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA_SQL)
+        self._conn.executescript(_AUDIT_SCHEMA_SQL)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()
@@ -312,6 +350,233 @@ class IndexDB:
             content_blob=ContentBlob(),   # Hydrated separately from CAS
             metadata=CommitMetadata.model_validate_json(row["metadata_json"]),
         )
+
+    # -- Audit log ---------------------------------------------------------
+
+    def insert_audit_event(
+        self,
+        event_type: str,
+        commit_hash: str | None = None,
+        branch: str | None = None,
+        agent_id: str = "sofia",
+        provider: str | None = None,
+        model: str | None = None,
+        action_detail: dict[str, Any] | None = None,
+        source_mode: str | None = None,
+        user_identity: str | None = None,
+        machine_id: str | None = None,
+        risk_level: str = "low",
+        code_generated: bool = False,
+        files_affected: list[str] | None = None,
+        token_count: int = 0,
+    ) -> int:
+        """Insert an audit log entry and return the audit_id."""
+        import platform
+        _user = user_identity or os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
+        _machine = machine_id or platform.node()
+        cursor = self._conn.execute(
+            """INSERT INTO audit_log
+               (event_type, commit_hash, branch, agent_id, provider, model,
+                action_detail, source_mode, user_identity, machine_id,
+                risk_level, code_generated, files_affected, token_count, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_type,
+                commit_hash,
+                branch,
+                agent_id,
+                provider,
+                model,
+                json.dumps(action_detail or {}),
+                source_mode,
+                _user,
+                _machine,
+                risk_level,
+                int(code_generated),
+                json.dumps(files_affected or []),
+                token_count,
+                time.time(),
+            ),
+        )
+        self._conn.commit()
+        return cursor.lastrowid or 0
+
+    def query_audit_log(
+        self,
+        event_type: str | None = None,
+        risk_level: str | None = None,
+        agent_id: str | None = None,
+        since: float | None = None,
+        until: float | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Query the audit log with optional filters."""
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if event_type:
+            conditions.append("event_type = ?")
+            params.append(event_type)
+        if risk_level:
+            conditions.append("risk_level = ?")
+            params.append(risk_level)
+        if agent_id:
+            conditions.append("agent_id = ?")
+            params.append(agent_id)
+        if since is not None:
+            conditions.append("created_at >= ?")
+            params.append(since)
+        if until is not None:
+            conditions.append("created_at <= ?")
+            params.append(until)
+
+        where = " AND ".join(conditions) if conditions else "1=1"
+        params.append(limit)
+
+        rows = self._conn.execute(
+            f"SELECT * FROM audit_log WHERE {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+
+        return [
+            {
+                "audit_id": r["audit_id"],
+                "event_type": r["event_type"],
+                "commit_hash": r["commit_hash"],
+                "branch": r["branch"],
+                "agent_id": r["agent_id"],
+                "provider": r["provider"],
+                "model": r["model"],
+                "action_detail": json.loads(r["action_detail"]) if r["action_detail"] else {},
+                "source_mode": r["source_mode"],
+                "user_identity": r["user_identity"],
+                "machine_id": r["machine_id"],
+                "risk_level": r["risk_level"],
+                "code_generated": bool(r["code_generated"]),
+                "files_affected": json.loads(r["files_affected"]) if r["files_affected"] else [],
+                "token_count": r["token_count"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+    def audit_summary(self) -> dict[str, Any]:
+        """Return aggregate audit statistics."""
+        total = self._conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+        if total == 0:
+            return {"total_events": 0}
+
+        by_type = self._conn.execute(
+            "SELECT event_type, COUNT(*) as cnt FROM audit_log GROUP BY event_type ORDER BY cnt DESC"
+        ).fetchall()
+        by_risk = self._conn.execute(
+            "SELECT risk_level, COUNT(*) as cnt FROM audit_log GROUP BY risk_level ORDER BY cnt DESC"
+        ).fetchall()
+        by_agent = self._conn.execute(
+            "SELECT agent_id, COUNT(*) as cnt FROM audit_log GROUP BY agent_id ORDER BY cnt DESC"
+        ).fetchall()
+        by_provider = self._conn.execute(
+            "SELECT provider, COUNT(*) as cnt FROM audit_log WHERE provider IS NOT NULL GROUP BY provider ORDER BY cnt DESC"
+        ).fetchall()
+        code_gen_count = self._conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE code_generated = 1"
+        ).fetchone()[0]
+        total_tokens = self._conn.execute(
+            "SELECT COALESCE(SUM(token_count), 0) FROM audit_log"
+        ).fetchone()[0]
+        first_ts = self._conn.execute(
+            "SELECT MIN(created_at) FROM audit_log"
+        ).fetchone()[0]
+        last_ts = self._conn.execute(
+            "SELECT MAX(created_at) FROM audit_log"
+        ).fetchone()[0]
+
+        return {
+            "total_events": total,
+            "events_by_type": {r["event_type"]: r["cnt"] for r in by_type},
+            "events_by_risk": {r["risk_level"]: r["cnt"] for r in by_risk},
+            "events_by_agent": {r["agent_id"]: r["cnt"] for r in by_agent},
+            "events_by_provider": {r["provider"]: r["cnt"] for r in by_provider},
+            "code_generation_events": code_gen_count,
+            "total_tokens_audited": total_tokens,
+            "first_event": first_ts,
+            "last_event": last_ts,
+        }
+
+    # -- Sync remotes ------------------------------------------------------
+
+    def upsert_remote(
+        self, name: str, remote_path: str, last_push: str | None = None,
+        last_pull: str | None = None,
+    ) -> None:
+        """Create or update a sync remote."""
+        now = time.time()
+        existing = self._conn.execute(
+            "SELECT * FROM sync_remotes WHERE name = ?", (name,)
+        ).fetchone()
+        if existing:
+            updates = ["remote_path = ?", "last_sync_at = ?"]
+            params: list[Any] = [remote_path, now]
+            if last_push is not None:
+                updates.append("last_push_hash = ?")
+                params.append(last_push)
+            if last_pull is not None:
+                updates.append("last_pull_hash = ?")
+                params.append(last_pull)
+            params.append(name)
+            self._conn.execute(
+                f"UPDATE sync_remotes SET {', '.join(updates)} WHERE name = ?",
+                params,
+            )
+        else:
+            self._conn.execute(
+                """INSERT INTO sync_remotes (name, remote_path, last_push_hash, last_pull_hash, last_sync_at, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (name, remote_path, last_push, last_pull, now, now),
+            )
+        self._conn.commit()
+
+    def get_remote(self, name: str) -> dict[str, Any] | None:
+        """Get a sync remote by name."""
+        row = self._conn.execute(
+            "SELECT * FROM sync_remotes WHERE name = ?", (name,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row["name"],
+            "remote_path": row["remote_path"],
+            "last_push_hash": row["last_push_hash"],
+            "last_pull_hash": row["last_pull_hash"],
+            "last_sync_at": row["last_sync_at"],
+            "created_at": row["created_at"],
+        }
+
+    def list_remotes(self) -> list[dict[str, Any]]:
+        """List all configured sync remotes."""
+        rows = self._conn.execute(
+            "SELECT * FROM sync_remotes ORDER BY created_at"
+        ).fetchall()
+        return [
+            {
+                "name": r["name"],
+                "remote_path": r["remote_path"],
+                "last_push_hash": r["last_push_hash"],
+                "last_pull_hash": r["last_pull_hash"],
+                "last_sync_at": r["last_sync_at"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+    def get_raw_commit_row(self, commit_hash: str) -> dict[str, Any] | None:
+        """Get the raw SQLite row for a commit (for sync transfer)."""
+        row = self._conn.execute(
+            "SELECT * FROM commits WHERE commit_hash = ?", (commit_hash,)
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
 
     def close(self) -> None:
         self._conn.close()
