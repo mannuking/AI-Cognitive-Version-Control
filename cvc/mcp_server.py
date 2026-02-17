@@ -441,6 +441,81 @@ MCP_TOOLS = [
             "required": [],
         },
     },
+    {
+        "name": "cvc_recall",
+        "description": (
+            "Natural language search across ALL past conversations. "
+            "Uses semantic vector search (Tier 3) when available, plus "
+            "text-based search on commit messages and deep content search. "
+            "Returns matching conversations with excerpts."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Natural language search query (e.g. 'how did we implement auth?').",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return. Default: 10.",
+                },
+                "deep": {
+                    "type": "boolean",
+                    "description": "Search inside conversation content, not just commit messages. Default: true.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "cvc_export",
+        "description": (
+            "Export a commit's conversation as a shareable Markdown document. "
+            "Perfect for code reviews — includes full conversation, metadata, "
+            "reasoning trace, and referenced files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "commit_hash": {
+                    "type": "string",
+                    "description": "Commit hash to export. If omitted, exports HEAD.",
+                },
+                "output_path": {
+                    "type": "string",
+                    "description": "Output file path. Default: auto-generated in cwd.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "cvc_inject",
+        "description": (
+            "Cross-project context transfer: pull relevant conversations from "
+            "another CVC project into the current one. Searches the source "
+            "project's conversation history and injects matching context."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source_project": {
+                    "type": "string",
+                    "description": "Absolute path to the source project directory (must have .cvc/).",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Natural language query to find relevant conversations in source.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum conversations to pull from source. Default: 5.",
+                },
+            },
+            "required": ["source_project", "query"],
+        },
+    },
 ]
 
 
@@ -674,6 +749,81 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
                             for i, m in enumerate(messages)
                         ],
                     }
+
+        elif tool_name == "cvc_recall":
+            query = arguments.get("query", "")
+            limit = arguments.get("limit", 10)
+            deep = arguments.get("deep", True)
+
+            if not query:
+                return {"error": "Query is required", "success": False}
+
+            results = engine.recall(query, limit=limit, deep=deep)
+            return {
+                "success": True,
+                "query": query,
+                "result_count": len(results),
+                "vector_search_available": engine.db.vectors.available,
+                "results": [
+                    {
+                        "rank": i + 1,
+                        "commit_hash": r["short_hash"],
+                        "full_hash": r["commit_hash"],
+                        "message": r["message"],
+                        "timestamp": r["timestamp"],
+                        "provider": r.get("provider", ""),
+                        "model": r.get("model", ""),
+                        "commit_type": r["commit_type"],
+                        "relevance_source": r["relevance_source"],
+                        "distance": r["distance"],
+                        "matching_excerpts": [
+                            {
+                                "role": mm["role"],
+                                "content": mm["content"][:300],
+                            }
+                            for mm in r.get("matching_messages", [])[:3]
+                        ],
+                    }
+                    for i, r in enumerate(results)
+                ],
+            }
+
+        elif tool_name == "cvc_export":
+            commit_hash = arguments.get("commit_hash")
+            output_path = arguments.get("output_path")
+
+            try:
+                md_content, resolved_hash = engine.export_markdown(commit_hash)
+            except ValueError as exc:
+                return {"error": str(exc), "success": False}
+
+            if output_path is None:
+                output_path = f"cvc-export-{resolved_hash[:12]}.md"
+
+            out = Path(output_path)
+            out.write_text(md_content, encoding="utf-8")
+
+            return {
+                "success": True,
+                "commit_hash": resolved_hash[:12],
+                "full_hash": resolved_hash,
+                "output_path": str(out.resolve()),
+                "size_bytes": len(md_content.encode("utf-8")),
+                "line_count": md_content.count("\n"),
+                "message": f"Exported conversation to {out.resolve()}",
+            }
+
+        elif tool_name == "cvc_inject":
+            source_project = arguments.get("source_project", "")
+            query = arguments.get("query", "")
+            limit = arguments.get("limit", 5)
+
+            if not source_project or not query:
+                return {"error": "source_project and query are required", "success": False}
+
+            source_path = Path(source_project).resolve()
+            result = engine.inject_from_project(source_path, query, limit=limit)
+            return result.model_dump()
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}

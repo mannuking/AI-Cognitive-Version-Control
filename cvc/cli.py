@@ -396,6 +396,10 @@ class CvcGroup(click.Group):
             ("serve", "Start the Cognitive Proxy server"),
             ("connect", "Connect your AI tool to CVC"),
             ("mcp", "Start CVC as an MCP server"),
+            ("recall \"query\"", "Search ALL past conversations (NL search)"),
+            ("context --show", "Display stored conversation content"),
+            ("export --markdown", "Export conversation as shareable Markdown"),
+            ("inject <project>", "Cross-project context transfer"),
             ("sessions", "View Time Machine session history"),
             ("init", "Initialise .cvc/ in your project"),
             ("status", "Show branch, HEAD, context size"),
@@ -1999,6 +2003,442 @@ def restore_for_checkout(git_sha: str) -> None:
         if result.success:
             _success(f"Restored CVC state: [#CCAA44]{cvc_hash[:12]}[/#CCAA44]")
 
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# recall (natural language search across all conversations)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("query")
+@click.option("-n", "--limit", default=10, type=int, help="Max results to return.")
+@click.option("--deep/--no-deep", default=True, help="Search inside conversation content (slower but thorough).")
+def recall(query: str, limit: int, deep: bool) -> None:
+    """Search across ALL past conversations using natural language.
+
+    \b
+    Uses CVC's three-tier search:
+      1. Semantic vector search (Tier 3, if Chroma is enabled)
+      2. Commit message text search (Tier 1, always available)
+      3. Deep content search (scans actual conversation messages)
+
+    \b
+    Examples:
+      cvc recall "how did we implement auth?"
+      cvc recall "database migration" --limit 5
+      cvc recall "error handling" --no-deep
+    """
+    from datetime import datetime
+
+    engine, db = _get_engine()
+
+    console.print()
+    console.print(
+        f"  [bold #CC3333]Searching[/bold #CC3333] [dim]for:[/dim] "
+        f"[bold white]\"{query}\"[/bold white]"
+    )
+
+    search_sources = []
+    if db.vectors.available:
+        search_sources.append("[#55AA55]semantic[/#55AA55]")
+    search_sources.append("[#CCAA44]message[/#CCAA44]")
+    if deep:
+        search_sources.append("[#CC3333]deep content[/#CC3333]")
+    console.print(f"  [dim]Sources:[/dim] {' + '.join(search_sources)}")
+    console.print()
+
+    results = engine.recall(query, limit=limit, deep=deep)
+
+    if not results:
+        _warn("No conversations found matching your query.")
+        _hint(
+            "Tips:\n"
+            "• Try broader search terms\n"
+            "• Use [bold]--deep[/bold] to search inside conversation content\n"
+            "• Enable Tier 3 vectors: [bold]CVC_VECTOR_ENABLED=true[/bold]"
+        )
+        db.close()
+        return
+
+    # Display results
+    for i, r in enumerate(results, 1):
+        ts = datetime.fromtimestamp(r["timestamp"])
+        date_str = ts.strftime("%Y-%m-%d %H:%M")
+
+        # Source badge
+        src = r["relevance_source"]
+        if src == "semantic":
+            badge = "[bold #55AA55]SEMANTIC[/bold #55AA55]"
+        elif src == "message":
+            badge = "[bold #CCAA44]MESSAGE[/bold #CCAA44]"
+        else:
+            badge = "[bold #CC3333]CONTENT[/bold #CC3333]"
+
+        # Distance indicator
+        dist = r["distance"]
+        if dist < 0.3:
+            relevance = "[bold #55AA55]●●●[/bold #55AA55] High"
+        elif dist < 0.6:
+            relevance = "[bold #CCAA44]●●○[/bold #CCAA44] Medium"
+        else:
+            relevance = "[bold #CC3333]●○○[/bold #CC3333] Low"
+
+        # Build result panel content
+        content_lines = [
+            f"  [dim]Commit[/dim]    [#CCAA44]{r['short_hash']}[/#CCAA44]  "
+            f"[dim]{r['commit_type']}[/dim]",
+            f"  [dim]Date[/dim]      {date_str}",
+            f"  [dim]Source[/dim]    {badge}  {relevance}",
+        ]
+        if r["provider"] or r["model"]:
+            content_lines.append(
+                f"  [dim]Model[/dim]     "
+                f"[#CC3333]{r.get('provider', '')}/{r.get('model', '')}[/#CC3333]"
+            )
+
+        # Show message
+        msg = r["message"]
+        if len(msg) > 120:
+            msg = msg[:117] + "…"
+        content_lines.append(f"  [dim]Message[/dim]   {msg}")
+
+        # Show matching conversation excerpts
+        matching = r.get("matching_messages", [])
+        if matching:
+            content_lines.append("")
+            content_lines.append("  [bold white]Matching excerpts:[/bold white]")
+            for mm in matching[:3]:
+                role = mm["role"].upper()
+                excerpt = mm["content"][:200]
+                if len(mm["content"]) > 200:
+                    excerpt += "…"
+                content_lines.append(f"    [dim]{role}:[/dim] {excerpt}")
+
+        console.print(
+            Panel(
+                "\n".join(content_lines),
+                border_style="#5C1010" if i == 1 else "dim",
+                title=f"[bold white]#{i}[/bold white]",
+                title_align="left",
+                padding=(0, 1),
+            )
+        )
+
+    console.print(f"\n  [dim]{len(results)} result(s) found[/dim]")
+    _hint(
+        "View full context: [bold]cvc context --show --commit <hash>[/bold]\n"
+        "Export as Markdown: [bold]cvc export --markdown --commit <hash>[/bold]"
+    )
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# context (display stored conversation content)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--show", is_flag=True, help="Display the full stored conversation content.")
+@click.option("--commit", "commit_hash", default=None, help="Show context for a specific commit (default: current HEAD).")
+@click.option("-n", "--limit", default=0, type=int, help="Limit number of messages shown (0 = all).")
+@click.option("--role", default=None, type=click.Choice(["user", "assistant", "system", "tool"]), help="Filter by message role.")
+def context(show: bool, commit_hash: str | None, limit: int, role: str | None) -> None:
+    """Display stored conversation context.
+
+    \b
+    Without --show: displays a summary (count, roles, size)
+    With    --show: displays the full conversation content
+
+    \b
+    Examples:
+      cvc context               # Quick summary of current context
+      cvc context --show        # Show the full conversation
+      cvc context --show --commit abc123  # Show a specific commit's conversation
+      cvc context --show --role user      # Show only user messages
+      cvc context --show -n 20           # Show last 20 messages
+    """
+    from datetime import datetime
+
+    engine, db = _get_engine()
+
+    if commit_hash:
+        # Load context from a specific commit
+        commit = db.index.get_commit(commit_hash)
+        if commit is None:
+            _error(f"Commit '{commit_hash}' not found.")
+            _hint("Use [bold]cvc log[/bold] to find valid commit hashes.")
+            db.close()
+            return
+        blob = db.retrieve_blob(commit.commit_hash)
+        if blob is None:
+            _error(f"Could not reconstruct blob for commit '{commit_hash}'.")
+            db.close()
+            return
+        messages = blob.messages
+        context_source = f"commit {commit.commit_hash[:12]}"
+        reasoning = blob.reasoning_trace
+        token_count = blob.token_count
+    else:
+        # Use current context window
+        messages = engine.context_window
+        context_source = f"HEAD ({(engine.head_hash or '—')[:12]})"
+        reasoning = engine._reasoning_trace
+        token_count = sum(len(m.content.split()) for m in messages)
+
+    # Apply role filter
+    if role:
+        messages = [m for m in messages if m.role == role]
+
+    # Apply limit
+    if limit > 0:
+        messages = messages[-limit:]
+
+    if not show:
+        # Summary mode (existing behavior enhanced)
+        total = len(messages)
+        user_count = sum(1 for m in messages if m.role == "user")
+        assistant_count = sum(1 for m in messages if m.role == "assistant")
+        tool_count = sum(1 for m in messages if m.role == "tool")
+        system_count = sum(1 for m in messages if m.role == "system")
+
+        console.print(
+            Panel(
+                f"  [dim]Source[/dim]       {context_source}\n"
+                f"  [dim]Messages[/dim]     [bold]{total}[/bold]\n"
+                f"  [dim]  User[/dim]       {user_count}\n"
+                f"  [dim]  Assistant[/dim]  {assistant_count}\n"
+                f"  [dim]  Tool[/dim]       {tool_count}\n"
+                f"  [dim]  System[/dim]     {system_count}\n"
+                f"  [dim]Tokens[/dim]       ~{token_count}",
+                border_style="#5C1010",
+                title="[bold white]Context Summary[/bold white]",
+                padding=(1, 2),
+            )
+        )
+        _hint("Use [bold]cvc context --show[/bold] to view the actual conversation content.")
+        db.close()
+        return
+
+    # Full conversation display
+    if not messages:
+        _warn("No messages in context.")
+        _hint("Start a conversation with [bold]cvc agent[/bold] or create a commit.")
+        db.close()
+        return
+
+    console.print()
+    console.print(
+        f"  [bold #CC3333]Context[/bold #CC3333] [dim]from[/dim] {context_source}  "
+        f"[dim]({len(messages)} messages)[/dim]"
+    )
+    console.print()
+
+    role_styles = {
+        "system": ("#8B7070", "⚙️"),
+        "user": ("#55AA55", "👤"),
+        "assistant": ("#CC3333", "🤖"),
+        "tool": ("#CCAA44", "🔧"),
+    }
+
+    for i, msg in enumerate(messages, 1):
+        style, emoji = role_styles.get(msg.role, ("#888888", "❓"))
+        ts = datetime.fromtimestamp(msg.timestamp)
+        time_str = ts.strftime("%H:%M:%S")
+
+        # Truncate very long messages for display
+        content = msg.content
+        truncated = False
+        if len(content) > 2000:
+            content = content[:2000]
+            truncated = True
+
+        header = f"{emoji} [bold {style}]{msg.role.upper()}[/bold {style}]  [dim]{time_str}[/dim]"
+
+        panel_content = content
+        if truncated:
+            panel_content += f"\n\n[dim]… ({len(msg.content) - 2000} more chars)[/dim]"
+
+        console.print(
+            Panel(
+                panel_content,
+                border_style=style,
+                title=header,
+                title_align="left",
+                padding=(0, 2),
+            )
+        )
+
+    # Show reasoning trace if present
+    if reasoning:
+        console.print(
+            Panel(
+                reasoning[:1000] + ("…" if len(reasoning) > 1000 else ""),
+                border_style="#8B7070",
+                title="[bold #8B7070]Reasoning Trace[/bold #8B7070]",
+                title_align="left",
+                padding=(0, 2),
+            )
+        )
+
+    console.print(f"\n  [dim]{len(messages)} message(s) displayed[/dim]\n")
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# export (conversation to shareable formats)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--markdown", "as_markdown", is_flag=True, help="Export as shareable Markdown file.")
+@click.option("--commit", "commit_hash", default=None, help="Commit hash to export (default: HEAD).")
+@click.option("-o", "--output", "output_path", default=None, help="Output file path (auto-generated if omitted).")
+def export(as_markdown: bool, commit_hash: str | None, output_path: str | None) -> None:
+    """Export a commit's conversation as a shareable file.
+
+    \b
+    Perfect for code reviews — share the AI's reasoning with your team.
+
+    \b
+    Examples:
+      cvc export --markdown                      # Export HEAD as Markdown
+      cvc export --markdown --commit abc123       # Export specific commit
+      cvc export --markdown -o review.md          # Custom output filename
+    """
+    engine, db = _get_engine()
+
+    if not as_markdown:
+        _warn("Please specify an export format.")
+        _hint("Currently supported: [bold]--markdown[/bold]\n\nExample: [bold]cvc export --markdown[/bold]")
+        db.close()
+        return
+
+    try:
+        md_content, resolved_hash = engine.export_markdown(commit_hash)
+    except ValueError as exc:
+        _error(str(exc))
+        _hint("Use [bold]cvc log[/bold] to find valid commit hashes.")
+        db.close()
+        return
+
+    # Determine output path
+    if output_path is None:
+        short = resolved_hash[:12]
+        output_path = f"cvc-export-{short}.md"
+
+    out = Path(output_path)
+    out.write_text(md_content, encoding="utf-8")
+
+    # Stats
+    lines_count = md_content.count("\n")
+    size_kb = len(md_content.encode("utf-8")) / 1024
+
+    console.print(
+        Panel(
+            f"  [dim]Commit[/dim]    [#CCAA44]{resolved_hash[:12]}[/#CCAA44]\n"
+            f"  [dim]Format[/dim]    Markdown\n"
+            f"  [dim]File[/dim]      [bold]{out.resolve()}[/bold]\n"
+            f"  [dim]Size[/dim]      {size_kb:.1f} KB ({lines_count} lines)",
+            border_style="#5C1010",
+            title="[bold #55AA55]✓ Exported[/bold #55AA55]",
+            padding=(1, 2),
+        )
+    )
+    _hint(
+        "Share this file during code reviews so your team can\n"
+        "see exactly what the AI reasoned about."
+    )
+    console.print()
+    db.close()
+
+
+# ---------------------------------------------------------------------------
+# inject (cross-project context transfer)
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.argument("source_project")
+@click.option("--query", "-q", required=True, help="Natural language query to find relevant conversations.")
+@click.option("-n", "--limit", default=5, type=int, help="Max conversations to pull from source.")
+def inject(source_project: str, query: str, limit: int) -> None:
+    """Pull relevant conversations from another project into this one.
+
+    \b
+    Cross-project context transfer — no other tool does this.
+    Search another project's CVC history and inject the matching
+    conversations into your current project as context.
+
+    \b
+    Examples:
+      cvc inject ../auth-service --query "JWT token handling"
+      cvc inject /projects/api --query "database migration patterns" -n 3
+      cvc inject ../shared-lib -q "error handling middleware"
+    """
+    source_path = Path(source_project).resolve()
+
+    if not source_path.is_dir():
+        _error(f"Directory not found: {source_path}")
+        return
+
+    if not (source_path / ".cvc").is_dir():
+        _error(f"No .cvc/ directory found at: {source_path}")
+        _hint(
+            f"Make sure the source project has CVC initialised:\n"
+            f"  [bold]cd {source_path} && cvc init[/bold]"
+        )
+        return
+
+    engine, db = _get_engine()
+
+    console.print()
+    console.print(
+        f"  [bold #CC3333]Injecting context[/bold #CC3333]\n"
+        f"  [dim]From[/dim]     [bold]{source_path.name}[/bold] [dim]({source_path})[/dim]\n"
+        f"  [dim]Query[/dim]    [bold white]\"{query}\"[/bold white]\n"
+        f"  [dim]Limit[/dim]    {limit} conversations"
+    )
+    console.print()
+
+    result = engine.inject_from_project(source_path, query, limit=limit)
+
+    if result.success:
+        detail = result.detail
+        console.print(
+            Panel(
+                f"  [dim]Source[/dim]              [bold]{detail.get('source_project', '')}[/bold]\n"
+                f"  [dim]Query[/dim]               \"{detail.get('query', '')}\"\n"
+                f"  [dim]Matching commits[/dim]    {detail.get('matching_commits', 0)}\n"
+                f"  [dim]Messages injected[/dim]   [bold #55AA55]{detail.get('injected_messages', 0)}[/bold #55AA55]\n"
+                f"  [dim]Commit[/dim]              [#CCAA44]{(result.commit_hash or '')[:12]}[/#CCAA44]",
+                border_style="#5C1010",
+                title="[bold #55AA55]✓ Context Injected[/bold #55AA55]",
+                padding=(1, 2),
+            )
+        )
+
+        # Show which commits were searched
+        searched = detail.get("commits_searched", [])
+        if searched:
+            console.print("  [dim]Commits searched:[/dim]")
+            for sh in searched:
+                console.print(f"    [dim]→[/dim] [#CCAA44]{sh}[/#CCAA44]")
+            console.print()
+
+        _hint(
+            "The injected context is now part of your conversation.\n"
+            "View it: [bold]cvc context --show[/bold]\n"
+            "Your agent will use this context in future responses."
+        )
+    else:
+        _error(result.message)
+        _hint(
+            "Tips:\n"
+            "• Make sure the source project has CVC commits\n"
+            "• Try broader search terms\n"
+            "• Check with: [bold]cd <source> && cvc log[/bold]"
+        )
+
+    console.print()
     db.close()
 
 

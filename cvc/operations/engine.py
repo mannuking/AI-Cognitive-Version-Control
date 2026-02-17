@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from cvc.core.database import ContextDatabase
@@ -569,3 +570,281 @@ class CVCEngine:
             }
             for c in commits
         ]
+
+    # ======================================================================
+    # 4.5  RECALL (Natural Language Search)
+    # ======================================================================
+
+    def recall(
+        self,
+        query: str,
+        limit: int = 10,
+        deep: bool = True,
+    ) -> list[dict[str, Any]]:
+        """
+        Search across ALL past conversations using natural language.
+
+        Combines Tier 3 semantic vector search (when available),
+        commit message text search, and deep content-blob search
+        to find conversations matching the query.
+
+        Returns a list of result dicts (see ContextDatabase.search_conversations).
+        """
+        return self.db.search_conversations(query, limit=limit, deep=deep)
+
+    # ======================================================================
+    # 4.6  EXPORT (Conversation to Markdown)
+    # ======================================================================
+
+    def export_markdown(self, commit_hash: str | None = None) -> tuple[str, str]:
+        """
+        Export a commit's conversation as a structured Markdown document.
+
+        If *commit_hash* is None, exports the current HEAD commit.
+        Returns a tuple of (markdown_string, resolved_commit_hash).
+
+        Raises ValueError if the commit or blob is not found.
+        """
+        # Resolve commit
+        if commit_hash is None:
+            commit_hash = self.head_hash
+        if commit_hash is None:
+            raise ValueError("No HEAD commit found. Create a commit first.")
+
+        commit = self.db.index.get_commit(commit_hash)
+        if commit is None:
+            raise ValueError(f"Commit '{commit_hash}' not found.")
+
+        blob = self.db.retrieve_blob(commit.commit_hash)
+        if blob is None:
+            raise ValueError(f"Blob for commit '{commit.commit_hash}' could not be reconstructed.")
+
+        # Build markdown
+        from datetime import datetime
+        lines: list[str] = []
+
+        # Header
+        lines.append(f"# CVC Conversation Export")
+        lines.append("")
+        lines.append(f"**Commit**: `{commit.commit_hash[:12]}`  ")
+        lines.append(f"**Branch**: `{self._active_branch}`  ")
+        lines.append(f"**Type**: `{commit.commit_type.value}`  ")
+        lines.append(f"**Message**: {commit.message}  ")
+        ts = datetime.fromtimestamp(commit.metadata.timestamp)
+        lines.append(f"**Date**: {ts.strftime('%Y-%m-%d %H:%M:%S')}  ")
+        if commit.metadata.provider:
+            lines.append(f"**Provider**: `{commit.metadata.provider}`  ")
+        if commit.metadata.model:
+            lines.append(f"**Model**: `{commit.metadata.model}`  ")
+        if commit.metadata.agent_id:
+            lines.append(f"**Agent**: `{commit.metadata.agent_id}`  ")
+        lines.append(f"**Token Count**: ~{blob.token_count}  ")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+        # Messages
+        lines.append("## Conversation")
+        lines.append("")
+
+        role_emoji = {
+            "system": "⚙️",
+            "user": "👤",
+            "assistant": "🤖",
+            "tool": "🔧",
+        }
+
+        for msg in blob.messages:
+            emoji = role_emoji.get(msg.role, "❓")
+            role_label = msg.role.upper()
+            msg_ts = datetime.fromtimestamp(msg.timestamp)
+            lines.append(f"### {emoji} {role_label}")
+            lines.append(f"*{msg_ts.strftime('%H:%M:%S')}*")
+            lines.append("")
+            # Handle content — preserve code blocks and formatting
+            content = msg.content.strip()
+            if content:
+                lines.append(content)
+            else:
+                lines.append("*(empty)*")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        # Reasoning trace
+        if blob.reasoning_trace:
+            lines.append("## Reasoning Trace")
+            lines.append("")
+            lines.append(blob.reasoning_trace)
+            lines.append("")
+
+        # Source files
+        if blob.source_files:
+            lines.append("## Source Files Referenced")
+            lines.append("")
+            for path, file_hash in sorted(blob.source_files.items()):
+                lines.append(f"- `{path}` (`{file_hash[:12]}`)")
+            lines.append("")
+
+        # Footer
+        lines.append("---")
+        lines.append(f"*Exported by CVC (Cognitive Version Control) on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*")
+        lines.append("")
+
+        return "\n".join(lines), commit.commit_hash
+
+    # ======================================================================
+    # 4.7  INJECT (Cross-Project Context Transfer)
+    # ======================================================================
+
+    def inject_from_project(
+        self,
+        source_root: Path,
+        query: str,
+        limit: int = 5,
+    ) -> CVCOperationResponse:
+        """
+        Pull relevant conversations from another CVC project into the
+        current context.
+
+        1. Opens the source project's CVC database (read-only).
+        2. Searches for conversations matching *query*.
+        3. Extracts matching messages and injects them as system-level
+           context into the current project's context window.
+        4. Commits the injected context as a new checkpoint.
+
+        Returns a CVCOperationResponse with details about the injection.
+        """
+        from cvc.core.database import ContextDatabase
+        from cvc.core.models import CVCConfig
+
+        source_cvc = source_root / ".cvc"
+        if not source_cvc.is_dir():
+            return CVCOperationResponse(
+                success=False,
+                operation="inject",
+                message=f"No .cvc/ directory found at '{source_root}'",
+            )
+
+        # Open source database
+        try:
+            source_config = CVCConfig.for_project(project_root=source_root)
+            source_db = ContextDatabase(source_config)
+        except Exception as exc:
+            return CVCOperationResponse(
+                success=False,
+                operation="inject",
+                message=f"Failed to open source CVC database: {exc}",
+            )
+
+        # Search the source project
+        try:
+            results = source_db.search_conversations(query, limit=limit, deep=True)
+        except Exception as exc:
+            source_db.close()
+            return CVCOperationResponse(
+                success=False,
+                operation="inject",
+                message=f"Search failed on source project: {exc}",
+            )
+
+        if not results:
+            source_db.close()
+            return CVCOperationResponse(
+                success=False,
+                operation="inject",
+                message=f"No conversations matching '{query}' found in source project.",
+            )
+
+        # Extract relevant messages from matching conversations
+        injected_messages: list[ContextMessage] = []
+        source_project_name = source_root.name
+
+        for result in results:
+            ch = result["commit_hash"]
+            try:
+                blob = source_db.retrieve_blob(ch)
+                if blob is None:
+                    continue
+            except Exception:
+                continue
+
+            # Collect relevant messages — either matching ones or all if few
+            if result["matching_messages"]:
+                for mm in result["matching_messages"]:
+                    injected_messages.append(
+                        ContextMessage(
+                            role="system",
+                            content=(
+                                f"[CVC INJECT from '{source_project_name}' "
+                                f"commit {ch[:12]}] "
+                                f"({mm['role'].upper()}): {mm['content']}"
+                            ),
+                        )
+                    )
+            else:
+                # No specific matching messages — take assistant messages as context
+                assistant_msgs = [m for m in blob.messages if m.role == "assistant"]
+                for m in assistant_msgs[:3]:
+                    content_preview = m.content[:800]
+                    injected_messages.append(
+                        ContextMessage(
+                            role="system",
+                            content=(
+                                f"[CVC INJECT from '{source_project_name}' "
+                                f"commit {ch[:12]}] "
+                                f"({m.role.upper()}): {content_preview}"
+                            ),
+                        )
+                    )
+
+        source_db.close()
+
+        if not injected_messages:
+            return CVCOperationResponse(
+                success=False,
+                operation="inject",
+                message="Found matching commits but could not extract messages.",
+            )
+
+        # Inject into current context window
+        summary_msg = ContextMessage(
+            role="system",
+            content=(
+                f"[CVC] Injected {len(injected_messages)} message(s) from project "
+                f"'{source_project_name}' matching query: \"{query}\". "
+                f"From {len(results)} matching conversation(s)."
+            ),
+        )
+        self.push_message(summary_msg)
+        for msg in injected_messages:
+            self.push_message(msg)
+
+        # Auto-commit the injection
+        inject_commit_result = self.commit(
+            CVCCommitRequest(
+                message=f"Injected context from '{source_project_name}' — query: \"{query}\"",
+                commit_type=CommitType.CHECKPOINT,
+                tags=["inject", f"source:{source_project_name}"],
+            )
+        )
+
+        detail = {
+            "source_project": str(source_root),
+            "query": query,
+            "matching_commits": len(results),
+            "injected_messages": len(injected_messages),
+            "commits_searched": [r["short_hash"] for r in results],
+        }
+
+        return CVCOperationResponse(
+            success=True,
+            operation="inject",
+            commit_hash=inject_commit_result.commit_hash,
+            branch=self._active_branch,
+            message=(
+                f"Injected {len(injected_messages)} message(s) from "
+                f"'{source_project_name}' ({len(results)} matching conversation(s))"
+            ),
+            detail=detail,
+        )

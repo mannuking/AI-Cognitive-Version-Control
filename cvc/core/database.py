@@ -266,6 +266,38 @@ class IndexDB:
         ).fetchone()
         return row["cvc_hash"] if row else None
 
+    # -- Full-text search --------------------------------------------------
+
+    def search_commits(self, query: str, limit: int = 20) -> list[CognitiveCommit]:
+        """
+        Search commits whose message contains *query* (case-insensitive).
+        Returns up to *limit* matching commits ordered by recency.
+        """
+        rows = self._conn.execute(
+            "SELECT * FROM commits WHERE message LIKE ? ORDER BY created_at DESC LIMIT ?",
+            (f"%{query}%", limit),
+        ).fetchall()
+        return [self._row_to_commit(r) for r in rows]
+
+    def list_all_commits(self, limit: int = 500) -> list[CognitiveCommit]:
+        """List all commits across all branches, ordered by recency."""
+        rows = self._conn.execute(
+            "SELECT * FROM commits ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [self._row_to_commit(r) for r in rows]
+
+    def get_blob_key(self, commit_hash: str) -> str | None:
+        """Public accessor for a commit's blob key."""
+        row = self._conn.execute(
+            "SELECT blob_key FROM commits WHERE commit_hash = ?", (commit_hash,)
+        ).fetchone()
+        if row is None:
+            row = self._conn.execute(
+                "SELECT blob_key FROM commits WHERE commit_hash LIKE ? LIMIT 1",
+                (f"{commit_hash}%",),
+            ).fetchone()
+        return row["blob_key"] if row else None
+
     # -- Helpers -----------------------------------------------------------
 
     @staticmethod
@@ -556,6 +588,115 @@ class ContextDatabase:
     def search_similar(self, query: str, n: int = 5) -> list[dict]:
         """Semantic search over commit summaries."""
         return self.vectors.search(query, n)
+
+    def search_conversations(
+        self,
+        query: str,
+        limit: int = 10,
+        deep: bool = True,
+    ) -> list[dict[str, Any]]:
+        """
+        Hybrid search across all conversations: semantic + text.
+
+        Returns a list of dicts with keys:
+          commit_hash, short_hash, message, timestamp, provider, model,
+          relevance_source ('semantic' | 'message' | 'content'),
+          distance (float, lower = more relevant),
+          matching_messages (list of relevant messages from the blob).
+
+        If *deep* is True, also searches inside content blobs for query terms.
+        """
+        results: dict[str, dict[str, Any]] = {}
+
+        # 1. Semantic vector search (if available)
+        if self.vectors.available:
+            semantic_hits = self.vectors.search(query, n=limit)
+            for hit in semantic_hits:
+                ch = hit["commit_hash"]
+                commit = self.index.get_commit(ch)
+                if commit is None:
+                    continue
+                results[ch] = {
+                    "commit_hash": ch,
+                    "short_hash": ch[:12],
+                    "message": commit.message,
+                    "timestamp": commit.metadata.timestamp,
+                    "provider": commit.metadata.provider or "",
+                    "model": commit.metadata.model or "",
+                    "commit_type": commit.commit_type.value,
+                    "relevance_source": "semantic",
+                    "distance": hit.get("distance", 0.0),
+                    "matching_messages": [],
+                }
+
+        # 2. Text search on commit messages
+        text_hits = self.index.search_commits(query, limit=limit * 2)
+        for commit in text_hits:
+            ch = commit.commit_hash
+            if ch in results:
+                continue  # Already found via semantic
+            results[ch] = {
+                "commit_hash": ch,
+                "short_hash": ch[:12],
+                "message": commit.message,
+                "timestamp": commit.metadata.timestamp,
+                "provider": commit.metadata.provider or "",
+                "model": commit.metadata.model or "",
+                "commit_type": commit.commit_type.value,
+                "relevance_source": "message",
+                "distance": 0.5,  # Mid-range score for text matches
+                "matching_messages": [],
+            }
+
+        # 3. Deep content search — scan blob content for query terms
+        if deep:
+            query_lower = query.lower()
+            query_terms = query_lower.split()
+            all_commits = self.index.list_all_commits(limit=500)
+            for commit in all_commits:
+                ch = commit.commit_hash
+                if ch in results:
+                    # Already have this commit, but enrich with content matches
+                    pass
+                # Try to get the blob and search through messages
+                try:
+                    blob = self.retrieve_blob(ch)
+                    if blob is None:
+                        continue
+                    matching_msgs = []
+                    for msg in blob.messages:
+                        content_lower = msg.content.lower()
+                        if any(term in content_lower for term in query_terms):
+                            matching_msgs.append({
+                                "role": msg.role,
+                                "content": msg.content[:500],
+                                "timestamp": msg.timestamp,
+                            })
+                    if matching_msgs:
+                        if ch not in results:
+                            results[ch] = {
+                                "commit_hash": ch,
+                                "short_hash": ch[:12],
+                                "message": commit.message,
+                                "timestamp": commit.metadata.timestamp,
+                                "provider": commit.metadata.provider or "",
+                                "model": commit.metadata.model or "",
+                                "commit_type": commit.commit_type.value,
+                                "relevance_source": "content",
+                                "distance": 0.7,
+                                "matching_messages": matching_msgs[:5],
+                            }
+                        else:
+                            results[ch]["matching_messages"] = matching_msgs[:5]
+                except Exception:
+                    continue
+
+        # Sort by distance (lower = more relevant), then by timestamp (newer first)
+        sorted_results = sorted(
+            results.values(),
+            key=lambda r: (r["distance"], -r["timestamp"]),
+        )
+        return sorted_results[:limit]
 
     # -- Internal helpers --------------------------------------------------
 
