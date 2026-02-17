@@ -344,7 +344,7 @@ MCP_TOOLS = [
         "description": (
             "Read the saved context from the current HEAD commit or a specific commit. "
             "Returns the conversation history that was saved in that checkpoint. "
-            "Useful for reviewing what was saved in previous sessions."
+            "By default returns FULL message content. Set full=false for previews."
         ),
         "inputSchema": {
             "type": "object",
@@ -356,6 +356,10 @@ MCP_TOOLS = [
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of messages to return. Default: 50.",
+                },
+                "full": {
+                    "type": "boolean",
+                    "description": "Return full message content (true) or previews (false). Default: true.",
                 },
             },
             "required": [],
@@ -484,6 +488,7 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
         elif tool_name == "cvc_get_context":
             commit_hash = arguments.get("commit_hash")
             limit = arguments.get("limit", 50)
+            full_content = arguments.get("full", True)  # Default to full content
             
             if commit_hash:
                 # Read specific commit - use log to find the commit
@@ -501,7 +506,7 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
                         "messages": []
                     }
                 
-                # Return commit info with message preview
+                # Return commit info
                 return {
                     "success": True,
                     "commit_hash": commit_entry['short'],
@@ -512,25 +517,47 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
                     "note": "To restore this context, use cvc_restore tool with commit hash",
                 }
             else:
-                # Read current context window
+                # Read current context window - return FULL content
                 messages = engine.context_window[:limit]
                 
-                return {
-                    "success": True,
-                    "commit_hash": engine.head_hash[:12],
-                    "full_hash": engine.head_hash,
-                    "branch": engine.active_branch,
-                    "message_count": len(messages),
-                    "context_size": len(engine.context_window),
-                    "messages_preview": [
-                        {
-                            "role": m.role,
-                            "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
-                            "full_length": len(m.content),
-                        }
-                        for m in messages
-                    ],
-                }
+                if full_content:
+                    # Return complete messages with full content
+                    return {
+                        "success": True,
+                        "commit_hash": engine.head_hash[:12],
+                        "full_hash": engine.head_hash,
+                        "branch": engine.active_branch,
+                        "message_count": len(messages),
+                        "context_size": len(engine.context_window),
+                        "messages": [
+                            {
+                                "id": i + 1,
+                                "role": m.role,
+                                "content": m.content,  # FULL content, not truncated
+                                "character_count": len(m.content),
+                            }
+                            for i, m in enumerate(messages)
+                        ],
+                    }
+                else:
+                    # Return preview version (first 200 chars)
+                    return {
+                        "success": True,
+                        "commit_hash": engine.head_hash[:12],
+                        "full_hash": engine.head_hash,
+                        "branch": engine.active_branch,
+                        "message_count": len(messages),
+                        "context_size": len(engine.context_window),
+                        "messages_preview": [
+                            {
+                                "id": i + 1,
+                                "role": m.role,
+                                "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
+                                "full_length": len(m.content),
+                            }
+                            for i, m in enumerate(messages)
+                        ],
+                    }
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}
