@@ -1070,7 +1070,7 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
         elif tool_name == "cvc_sync_status":
             remote_name = arguments.get("remote_name")
             result = engine.sync_status(remote_name=remote_name)
-            return result.model_dump()
+            return result
 
         elif tool_name == "cvc_audit":
             event_type = arguments.get("event_type")
@@ -1085,7 +1085,7 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
                 limit=limit,
                 export_format=export_format,
             )
-            return result.model_dump()
+            return result
 
         else:
             return {"error": f"Unknown tool: {tool_name}"}
