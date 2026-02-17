@@ -48,11 +48,120 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("cvc.mcp_server")
+
+
+# ---------------------------------------------------------------------------
+# Persistent Session State (stdio transport is stateful)
+# ---------------------------------------------------------------------------
+
+class _MCPSession:
+    """Persistent state for the MCP server session."""
+    
+    def __init__(self) -> None:
+        self.workspace: Path | None = None
+        self.engine = None
+        self.db = None
+        self.initialized: bool = False
+    
+    def detect_workspace(self) -> Path:
+        """
+        Multi-strategy workspace detection with graceful fallbacks.
+        
+        Priority order:
+        1. Explicit CVC_WORKSPACE env var
+        2. Workspace passed via cvc_set_workspace tool
+        3. IDE-specific env vars (CODEX_WORKSPACE_ROOT, etc.)
+        4. Walk up from cwd to find .cvc/, .git/, pyproject.toml
+        5. Fallback to os.getcwd() with warning
+        """
+        # Strategy 1: Explicit env var
+        if env_ws := os.environ.get("CVC_WORKSPACE"):
+            ws = Path(env_ws).resolve()
+            if ws.exists():
+                logger.info("Workspace from CVC_WORKSPACE: %s", ws)
+                return ws
+        
+        # Strategy 2: Already set (via tool call)
+        if self.workspace:
+            return self.workspace
+        
+        # Strategy 3: IDE-specific env vars
+        for var in ["CODEX_WORKSPACE_ROOT", "PROJECT_ROOT", "WORKSPACE_FOLDER"]:
+            if val := os.environ.get(var):
+                ws = Path(val).resolve()
+                if ws.exists():
+                    logger.info("Workspace from %s: %s", var, ws)
+                    return ws
+        
+        # Strategy 4: Walk up from cwd to find markers
+        cwd = Path.cwd().resolve()
+        current = cwd
+        for _ in range(10):  # Max 10 levels up
+            if any((current / marker).exists() for marker in [".cvc", ".git", "pyproject.toml", "package.json"]):
+                logger.info("Workspace detected via marker: %s", current)
+                return current
+            parent = current.parent
+            if parent == current:  # Reached filesystem root
+                break
+            current = parent
+        
+        # Strategy 5: Fallback to cwd (unreliable but better than nothing)
+        logger.warning(
+            "Could not detect workspace reliably. Using cwd: %s. "
+            "Set CVC_WORKSPACE env var for accuracy.", cwd
+        )
+        return cwd
+    
+    def ensure_initialized(self) -> None:
+        """Initialize CVC engine for the detected workspace (auto-init if needed)."""
+        if self.initialized and self.engine and self.db:
+            return
+        
+        from cvc.core.models import CVCConfig
+        from cvc.core.database import ContextDatabase
+        from cvc.operations.engine import CVCEngine
+        
+        # Detect workspace
+        workspace = self.detect_workspace()
+        self.workspace = workspace
+        
+        # Change to workspace directory for CVCConfig.for_project()
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(workspace)
+            
+            # Load or create config
+            config = CVCConfig.for_project()
+            
+            # Auto-initialize if .cvc/ doesn't exist
+            cvc_dir = workspace / ".cvc"
+            if not cvc_dir.exists():
+                logger.info("Auto-initializing CVC in %s", workspace)
+                config.ensure_dirs()
+                logger.info("Created .cvc/ directory structure")
+            
+            # Initialize engine + database
+            self.db = ContextDatabase(config)
+            self.engine = CVCEngine(config, self.db)
+            self.initialized = True
+            
+            logger.info(
+                "CVC initialized: workspace=%s, branch=%s, context_size=%d",
+                workspace, self.engine.active_branch, len(self.engine.context_window)
+            )
+        
+        finally:
+            os.chdir(original_cwd)
+
+
+# Global session instance (persists for entire MCP server lifetime)
+_session = _MCPSession()
 
 
 # ---------------------------------------------------------------------------
@@ -212,20 +321,53 @@ MCP_TOOLS = [
             "required": ["messages"],
         },
     },
+    {
+        "name": "cvc_set_workspace",
+        "description": (
+            "Manually set the workspace/project directory for CVC operations. "
+            "By default, CVC auto-detects the workspace from CVC_WORKSPACE env var "
+            "or by walking up from cwd to find .cvc/.git markers. Use this to override."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the workspace/project directory.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "cvc_get_context",
+        "description": (
+            "Read the saved context from the current HEAD commit or a specific commit. "
+            "Returns the conversation history that was saved in that checkpoint. "
+            "Useful for reviewing what was saved in previous sessions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "commit_hash": {
+                    "type": "string",
+                    "description": "Optional: specific commit to read. If omitted, reads HEAD.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of messages to return. Default: 50.",
+                },
+            },
+            "required": [],
+        },
+    },
 ]
 
 
 def _get_engine():
-    """Lazily initialise CVC engine + database."""
-    from cvc.core.models import CVCConfig
-    from cvc.core.database import ContextDatabase
-    from cvc.operations.engine import CVCEngine
-
-    config = CVCConfig.for_project()
-    config.ensure_dirs()
-    db = ContextDatabase(config)
-    engine = CVCEngine(config, db)
-    return engine, db
+    """Get the persistent CVC engine from the session (auto-initializes if needed)."""
+    _session.ensure_initialized()
+    return _session.engine, _session.db
 
 
 def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -319,11 +461,83 @@ def _handle_tool_call(tool_name: str, arguments: dict[str, Any]) -> dict[str, An
                 "message": f"Captured {captured_count} messages into CVC context.",
             }
 
+        elif tool_name == "cvc_set_workspace":
+            workspace_path = Path(arguments["path"]).resolve()
+            if not workspace_path.exists():
+                return {
+                    "error": f"Path does not exist: {workspace_path}",
+                    "success": False,
+                }
+            
+            # Update session workspace and reinitialize
+            _session.workspace = workspace_path
+            _session.initialized = False
+            _session.ensure_initialized()
+            
+            return {
+                "success": True,
+                "workspace": str(_session.workspace),
+                "message": f"Workspace set to: {_session.workspace}",
+                "cvc_initialized": (_session.workspace / ".cvc").exists(),
+            }
+
+        elif tool_name == "cvc_get_context":
+            commit_hash = arguments.get("commit_hash")
+            limit = arguments.get("limit", 50)
+            
+            if commit_hash:
+                # Read specific commit - use log to find the commit
+                entries = engine.log(limit=100)  # Search in log
+                commit_entry = None
+                for entry in entries:
+                    if entry['hash'].startswith(commit_hash) or entry['short'] == commit_hash:
+                        commit_entry = entry
+                        break
+                
+                if not commit_entry:
+                    return {
+                        "error": f"Commit not found: {commit_hash}",
+                        "success": False,
+                        "messages": []
+                    }
+                
+                # Return commit info with message preview
+                return {
+                    "success": True,
+                    "commit_hash": commit_entry['short'],
+                    "full_hash": commit_entry['hash'],
+                    "type": commit_entry['type'],
+                    "message": commit_entry['message'],
+                    "timestamp": commit_entry.get('timestamp'),
+                    "note": "To restore this context, use cvc_restore tool with commit hash",
+                }
+            else:
+                # Read current context window
+                messages = engine.context_window[:limit]
+                
+                return {
+                    "success": True,
+                    "commit_hash": engine.head_hash[:12],
+                    "full_hash": engine.head_hash,
+                    "branch": engine.active_branch,
+                    "message_count": len(messages),
+                    "context_size": len(engine.context_window),
+                    "messages_preview": [
+                        {
+                            "role": m.role,
+                            "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
+                            "full_length": len(m.content),
+                        }
+                        for m in messages
+                    ],
+                }
+
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
-    finally:
-        db.close()
+    except Exception as exc:
+        logger.error("Tool execution error: %s", exc, exc_info=True)
+        return {"error": str(exc), "success": False}
 
 
 # ---------------------------------------------------------------------------
@@ -457,35 +671,88 @@ def _print_stdio_guidance() -> None:
     """
     version = _get_version()
     sys.stderr.write(f"""
-╭──────────────────────────────────────────────────────────╮
-│  CVC MCP Server v{version}                                │
-│  Cognitive Version Control — MCP stdio transport         │
-╰──────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────╮
+│  CVC MCP Server v{version}                                        │
+│  Cognitive Version Control — MCP stdio transport                 │
+│  ✨ NEW: Auto workspace detection + persistent state             │
+╰──────────────────────────────────────────────────────────────────╯
 
   This server communicates via JSON-RPC over stdin/stdout.
   It's designed to be launched BY your IDE, not run manually.
 
-  ┌─────────────────────────────────────────────────────┐
-  │  HOW TO USE:                                        │
-  │                                                     │
-  │  VS Code (settings.json or .vscode/mcp.json):       │
-  │    "mcp": {{"servers": {{"cvc": {{                     │
-  │      "command": "cvc", "args": ["mcp"]              │
-  │    }}}}}}                                              │
-  │                                                     │
-  │  Cursor / Windsurf (.cursor/mcp.json):               │
-  │    {{"mcpServers": {{"cvc": {{                          │
-  │      "command": "cvc", "args": ["mcp"]              │
-  │    }}}}}}                                              │
-  │                                                     │
-  │  Claude Code (.mcp.json):                            │
-  │    {{"mcpServers": {{"cvc": {{                          │
-  │      "command": "cvc", "args": ["mcp"]              │
-  │    }}}}}}                                              │
-  └─────────────────────────────────────────────────────┘
+  ┌───────────────────────────────────────────────────────────────┐
+  │  🔧 WORKSPACE DETECTION (auto-initializes .cvc/ if needed)    │
+  │                                                               │
+  │  The server auto-detects your project workspace using:       │
+  │    1. CVC_WORKSPACE env var (highest priority)                │
+  │    2. Walk up from cwd to find .cvc, .git, pyproject.toml     │
+  │    3. IDE-specific env vars (CODEX_WORKSPACE_ROOT, etc.)      │
+  │                                                               │
+  │  Or use cvc_set_workspace tool to manually override.          │
+  └───────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────────────────────┐
+  │  📝 IDE CONFIGURATION EXAMPLES:                               │
+  │                                                               │
+  │  VS Code - User Settings (settings.json):                     │
+  │    "mcp": {{                                                   │
+  │      "servers": {{                                             │
+  │        "cvc": {{                                               │
+  │          "command": "cvc",                                     │
+  │          "args": ["mcp"],                                      │
+  │          "env": {{                                             │
+  │            "CVC_WORKSPACE": "${{workspaceFolder}}"             │
+  │          }}                                                    │
+  │        }}                                                      │
+  │      }}                                                        │
+  │    }}                                                          │
+  │                                                               │
+  │  VS Code - Workspace (.vscode/mcp.json):                      │
+  │    {{                                                          │
+  │      "servers": {{                                             │
+  │        "cvc": {{                                               │
+  │          "command": "cvc",                                     │
+  │          "args": ["mcp"]                                       │
+  │        }}                                                      │
+  │      }}                                                        │
+  │    }}                                                          │
+  │    (auto-detects workspace from .vscode location)             │
+  │                                                               │
+  │  Cursor / Windsurf (.cursor/mcp.json or IDE settings):        │
+  │    {{                                                          │
+  │      "mcpServers": {{                                          │
+  │        "cvc": {{                                               │
+  │          "command": "cvc",                                     │
+  │          "args": ["mcp"],                                      │
+  │          "env": {{                                             │
+  │            "CVC_WORKSPACE": "/absolute/path/to/your/project"   │
+  │          }}                                                    │
+  │        }}                                                      │
+  │      }}                                                        │
+  │    }}                                                          │
+  └───────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────────────────────────────────────────────────┐
+  │  🛠️  AVAILABLE TOOLS (10 total):                              │
+  │                                                               │
+  │    • cvc_status          — Show branch, HEAD, context size    │
+  │    • cvc_commit          — Save conversation checkpoint       │
+  │    • cvc_branch          — Create cognitive branch            │
+  │    • cvc_merge           — Merge branches                     │
+  │    • cvc_restore         — Time-travel to commit              │
+  │    • cvc_log             — View commit history                │
+  │    • cvc_capture_context — Manually save conversation         │
+  │    • cvc_set_workspace   — Override workspace path            │
+  │    • cvc_get_context     — Read saved context from commits    │
+  └───────────────────────────────────────────────────────────────┘
+
+  💡 TIP: For automatic context capture, use 'cvc serve' with
+      Continue.dev or Cline extensions. MCP mode requires manual
+      capture via cvc_capture_context tool.
 
   Or use SSE transport for HTTP-based integration:
     cvc mcp --transport sse
+
 
   The server is now listening on stdin for JSON-RPC messages.
   Press Ctrl+C to stop.
