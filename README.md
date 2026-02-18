@@ -14,8 +14,12 @@
 
 <br>
 
-```
-pip install tm-ai
+```bash
+# macOS / Linux / WSL
+curl -fsSL https://jaimeena.com/cvc/install.sh | bash
+
+# Windows PowerShell
+irm https://jaimeena.com/cvc/install.ps1 | iex
 ```
 
 <br>
@@ -437,7 +441,7 @@ flowchart LR
 
 ### Prerequisites
 
-Python 3.11+ • Git *(for VCS bridge features)*
+Git *(for VCS bridge features)* &nbsp;•&nbsp; Python 3.11+ *(auto-installed by the installer if missing)*
 
 </div>
 
@@ -445,29 +449,39 @@ Python 3.11+ • Git *(for VCS bridge features)*
 
 ### 📦 Install
 
-> **Available on [PyPI](https://pypi.org/project/tm-ai/)** — install in one command, no cloning required.
+> **No Python required.** The installer handles everything — including Python itself.
 
+**macOS, Linux, WSL:**
 ```bash
-pip install tm-ai
+curl -fsSL https://jaimeena.com/cvc/install.sh | bash
 ```
 
-That's it. The `cvc` command is now available globally.
+**Windows PowerShell:**
+```powershell
+irm https://jaimeena.com/cvc/install.ps1 | iex
+```
+
+**Windows CMD:**
+```cmd
+curl -fsSL https://jaimeena.com/cvc/install.cmd -o install.cmd && install.cmd
+```
+
+That's it. The `cvc` command is on your PATH. No virtual environments to manage.
 
 <details>
-<summary><strong>🔧 More install options</strong></summary>
+<summary><strong>🔧 Alternative: install via pip / uv</strong></summary>
 
 ```bash
-# With uv (faster)
-uv pip install tm-ai
+# Standard pip
+pip install "tm-ai[all]"
 
-# As an isolated uv tool (always on PATH, no venv needed)
-uv tool install tm-ai
+# uv (faster, isolated environment)
+uv tool install "tm-ai[all]"
 
-# With provider extras
+# With a specific provider only
 pip install "tm-ai[anthropic]"     # Anthropic (Claude)
 pip install "tm-ai[openai]"        # OpenAI (GPT)
 pip install "tm-ai[google]"        # Google (Gemini)
-pip install "tm-ai[all]"           # Everything
 ```
 
 </details>
