@@ -97,18 +97,35 @@ if (Test-Path $uvCvcPath) {
 $pathCvc = Get-Command $ToolName -ErrorAction SilentlyContinue
 if ($pathCvc) {
     $pathCvcResolved = $pathCvc.Source
-    if ($uvBinDir -and (-not $pathCvcResolved.StartsWith($uvBinDir, [System.StringComparison]::OrdinalIgnoreCase))) {
+    $isSameAsUv = $uvBinDir -and `
+        [System.IO.Path]::GetFullPath($pathCvcResolved).StartsWith(
+            [System.IO.Path]::GetFullPath($uvBinDir),
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+    if (-not $isSameAsUv) {
         Write-Host ""
-        Write-Host "  ⚠  PATH CONFLICT DETECTED" -ForegroundColor Yellow
-        Write-Host "     'cvc' in your PATH resolves to the OLD installation:" -ForegroundColor Yellow
+        Write-Host "  WARNING: PATH CONFLICT DETECTED" -ForegroundColor Yellow
+        Write-Host "     '$ToolName' in your PATH resolves to an OLD installation:" -ForegroundColor Yellow
         Write-Host "     $pathCvcResolved" -ForegroundColor Red
         Write-Host "     The NEW version is at:" -ForegroundColor Yellow
         Write-Host "     $uvCvcPath" -ForegroundColor Green
         Write-Host ""
-        Write-Host "  To fix — uninstall the old version with ONE of these:" -ForegroundColor White
-        Write-Host "    pip uninstall tm-ai -y" -ForegroundColor Cyan
-        Write-Host "    pipx uninstall tm-ai" -ForegroundColor Cyan
-        Write-Host "  Then open a new terminal and run 'cvc' — it will use 1.5.2." -ForegroundColor White
+
+        # Detect the source of the conflict and give a targeted fix
+        if ($pathCvcResolved -match "conda") {
+            Write-Host "  Detected source: Conda environment" -ForegroundColor White
+            Write-Host "  Fix:" -ForegroundColor White
+            Write-Host "    conda run pip uninstall tm-ai -y" -ForegroundColor Cyan
+        } elseif ($pathCvcResolved -match "pipx") {
+            Write-Host "  Detected source: pipx" -ForegroundColor White
+            Write-Host "  Fix:" -ForegroundColor White
+            Write-Host "    pipx uninstall tm-ai" -ForegroundColor Cyan
+        } else {
+            Write-Host "  Detected source: pip / system Python" -ForegroundColor White
+            Write-Host "  Fix:" -ForegroundColor White
+            Write-Host "    pip uninstall tm-ai -y" -ForegroundColor Cyan
+        }
+        Write-Host "  Then open a new terminal — 'cvc' will use $uvCvcPath" -ForegroundColor White
     }
 } else {
     Write-Host ""
