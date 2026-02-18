@@ -511,9 +511,25 @@ MODEL_CATALOG_AGENT: dict[str, list[tuple[str, str, str]]] = {
         ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
     ],
     "ollama": [
-        ("qwen2.5-coder:7b", "Best coding model — 11M+ pulls", "~4 GB"),
-        ("qwen3-coder:30b", "Latest agentic coding model", "~18 GB"),
-        ("devstral:24b", "Mistral's best open-source coding agent", "~14 GB"),
-        ("deepseek-r1:8b", "Open reasoning model (chain-of-thought)", "~5 GB"),
+        # All models below carry the Ollama 'tools' badge — confirmed to support
+        # function/tool calling with the native /api/chat endpoint as of Feb 2026.
+        ("qwen2.5-coder:7b", "Best 7B coding — 11M+ pulls, tools ✓", "~4 GB"),
+        ("qwen3:14b", "Qwen3 — thinking + non-thinking modes, tools ✓", "~9 GB"),
+        ("qwen3-coder:30b", "Agentic coder — MoE (3.3B active), 256K ctx, tools ✓", "~19 GB"),
+        ("devstral:24b", "Mistral best open-source coding agent, tools ✓", "~14 GB"),
+        ("deepseek-r1:8b", "DeepSeek-R1 — reasoning + tool calling", "~5 GB"),
+        ("mistral-small3.2:24b", "Improved function calling + vision, tools ✓", "~15 GB"),
+        ("qwq:32b", "QwQ — deep reasoning + tool calling (chain-of-thought)", "~20 GB"),
+        ("llama3.3:70b", "Meta Llama 3.3 — powerful general model, tools ✓", "~40 GB"),
+    ],
+    "lmstudio": [
+        # Model IDs should match what LM Studio shows in Developer → Server tab.
+        # All listed models support tool calling (native or via LM Studio's prompt injection).
+        ("qwen2.5-coder-32b-instruct", "Best local coding — Qwen 2.5, native tools", "~18 GB"),
+        ("qwen3-14b", "Qwen3 14B — thinking mode + tool calling", "~9 GB"),
+        ("devstral-small-2505", "Mistral agentic coding model, tool calling", "~14 GB"),
+        ("deepseek-r1-distill-qwen-32b", "Reasoning + coding, chain-of-thought", "~18 GB"),
+        ("gemma-3-27b-it", "Google Gemma 3 27B instruction tuned", "~15 GB"),
+        ("mistral-small-3.2-24b-instruct", "Improved function calling over 3.1", "~13 GB"),
     ],
 }

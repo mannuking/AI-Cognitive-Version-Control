@@ -116,6 +116,12 @@ class AgentLLM:
             self._api_url = base_url or "https://generativelanguage.googleapis.com"
         elif self.provider == "ollama":
             self._api_url = base_url or "http://localhost:11434"
+        elif self.provider == "lmstudio":
+            # LM Studio exposes a full OpenAI-compatible API at localhost:1234
+            # No API key required — set a placeholder so the Authorization header
+            # doesn't cause a rejection on stricter LM Studio builds.
+            self._api_url = base_url or "http://localhost:1234"
+            headers["Authorization"] = f"Bearer {api_key or 'lm-studio'}"
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
@@ -143,6 +149,9 @@ class AgentLLM:
             return await self._chat_google(messages, tools, temperature, max_tokens)
         elif self.provider == "ollama":
             return await self._chat_ollama(messages, tools, temperature, max_tokens)
+        elif self.provider == "lmstudio":
+            # LM Studio is fully OpenAI-compatible — reuse the same code path
+            return await self._chat_openai(messages, tools, temperature, max_tokens)
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
@@ -168,6 +177,10 @@ class AgentLLM:
                 yield event
         elif self.provider == "ollama":
             async for event in self._stream_ollama(messages, tools, temperature, max_tokens):
+                yield event
+        elif self.provider == "lmstudio":
+            # LM Studio is fully OpenAI-compatible — reuse the same streaming path
+            async for event in self._stream_openai(messages, tools, temperature, max_tokens):
                 yield event
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
@@ -715,7 +728,20 @@ class AgentLLM:
                 merged.append(content)
         return merged
 
-    # ── Ollama (OpenAI-compatible) ───────────────────────────────────────
+    # ── Ollama (native /api/chat endpoint) ──────────────────────────────
+    #
+    # IMPORTANT: We use Ollama's NATIVE /api/chat endpoint, NOT the
+    # OpenAI-compat /v1/chat/completions endpoint. The compat layer has a
+    # known bug (ollama#12557) where it silently drops tool_calls when
+    # stream=true. The native API has fully supported streaming + tool
+    # calling since May 2025 (ollama#10415).
+    #
+    # Critical fix: num_ctx MUST be set. Ollama defaults to 4096 tokens
+    # which truncates the system prompt + all 17 tool schemas, causing the
+    # model to never see the tool definitions and silently produce text
+    # instead of tool calls.
+
+    _OLLAMA_NUM_CTX = 32768  # Safe default: covers system prompt + all tools
 
     async def _chat_ollama(
         self,
@@ -731,26 +757,54 @@ class AgentLLM:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                # FIX: Without num_ctx, Ollama defaults to 4096 tokens which
+                # silently truncates the tool schemas — the model never sees
+                # tool definitions and can't make tool calls.
+                "num_ctx": self._OLLAMA_NUM_CTX,
             },
         }
 
         if tools:
             body["tools"] = tools
 
-        resp = await self._client.post("/api/chat", json=body)
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = await self._client.post("/api/chat", json=body)
+            resp.raise_for_status()
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self._api_url}.\n"
+                "Make sure Ollama is running. Start it with: ollama serve\n"
+                "Download from: https://ollama.com/download"
+            )
+        except httpx.HTTPStatusError as exc:
+            body_text = exc.response.text
+            if exc.response.status_code == 404 or "not found" in body_text.lower():
+                raise RuntimeError(
+                    f"Model '{self.model}' is not installed in Ollama.\n"
+                    f"Pull it first: ollama pull {self.model}\n"
+                    f"Browse models: https://ollama.com/library"
+                ) from exc
+            raise RuntimeError(f"Ollama API error {exc.response.status_code}: {body_text}") from exc
 
+        data = resp.json()
         msg = data.get("message", {})
         tool_calls_raw = msg.get("tool_calls", [])
 
         tool_calls = []
         for i, tc in enumerate(tool_calls_raw):
             fn = tc.get("function", {})
+            args = fn.get("arguments", {})
+            # FIX: Some Ollama model versions return arguments as a JSON string
+            # rather than a pre-parsed dict. Normalise to dict in both cases.
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except (json.JSONDecodeError, ValueError):
+                    args = {"raw": args}
             tool_calls.append(ToolCall(
                 id=f"call_{i}",
                 name=fn.get("name", ""),
-                arguments=fn.get("arguments", {}),
+                arguments=args,
             ))
 
         return LLMResponse(
@@ -963,7 +1017,19 @@ class AgentLLM:
         temperature: float,
         max_tokens: int,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream from Ollama API."""
+        """
+        Stream from Ollama's native /api/chat endpoint.
+
+        Tool call handling:
+          Ollama sends tool_calls in ONE intermediate done:false chunk as a
+          complete list (not incrementally like OpenAI). We accumulate them
+          with a global index so IDs are unique across the entire response,
+          then yield a tool_call_start event for each one as it arrives.
+
+        num_ctx:
+          Must be set explicitly — Ollama defaults to 4096 which truncates
+          tool schemas and causes silent tool-call failures.
+        """
         body: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -971,6 +1037,8 @@ class AgentLLM:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                # FIX: Must set num_ctx or tool schemas get silently truncated
+                "num_ctx": self._OLLAMA_NUM_CTX,
             },
         }
 
@@ -979,36 +1047,67 @@ class AgentLLM:
 
         prompt_tokens = 0
         completion_tokens = 0
+        # Global tool call counter so IDs are unique across chunks
+        tc_global_idx = 0
 
-        async with self._client.stream("POST", "/api/chat", json=body) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.strip():
-                    continue
-                try:
-                    chunk = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+        try:
+            async with self._client.stream("POST", "/api/chat", json=body) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
 
-                msg = chunk.get("message", {})
+                    msg = chunk.get("message", {})
 
-                # Text content
-                if msg.get("content"):
-                    yield StreamEvent(type="text_delta", text=msg["content"])
+                    # Text content delta
+                    content = msg.get("content", "")
+                    if content:
+                        yield StreamEvent(type="text_delta", text=content)
 
-                # Tool calls (Ollama sends them in the final message)
-                for i, tc_raw in enumerate(msg.get("tool_calls", [])):
-                    fn = tc_raw.get("function", {})
-                    tc = ToolCall(
-                        id=f"call_{i}",
-                        name=fn.get("name", ""),
-                        arguments=fn.get("arguments", {}),
-                    )
-                    yield StreamEvent(type="tool_call_start", tool_call=tc)
+                    # Tool calls — Ollama sends complete tool_calls in a single
+                    # intermediate chunk (done:false). Accumulate with global index.
+                    for tc_raw in msg.get("tool_calls", []):
+                        fn = tc_raw.get("function", {})
+                        args = fn.get("arguments", {})
+                        # FIX: Normalise arguments — may be JSON string in some builds
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except (json.JSONDecodeError, ValueError):
+                                args = {"raw": args}
+                        tc = ToolCall(
+                            id=f"call_{tc_global_idx}",
+                            name=fn.get("name", ""),
+                            arguments=args,
+                        )
+                        yield StreamEvent(
+                            type="tool_call_start",
+                            tool_call=tc,
+                            tool_call_index=tc_global_idx,
+                        )
+                        tc_global_idx += 1
 
-                if chunk.get("done"):
-                    prompt_tokens = chunk.get("prompt_eval_count", 0)
-                    completion_tokens = chunk.get("eval_count", 0)
+                    if chunk.get("done"):
+                        prompt_tokens = chunk.get("prompt_eval_count", 0)
+                        completion_tokens = chunk.get("eval_count", 0)
+
+        except httpx.ConnectError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self._api_url}.\n"
+                "Make sure Ollama is running. Start it with: ollama serve"
+            )
+        except httpx.HTTPStatusError as exc:
+            body_text = exc.response.text
+            if exc.response.status_code == 404 or "not found" in body_text.lower():
+                raise RuntimeError(
+                    f"Model '{self.model}' is not installed in Ollama.\n"
+                    f"Pull it with: ollama pull {self.model}"
+                ) from exc
+            raise
 
         yield StreamEvent(
             type="done",

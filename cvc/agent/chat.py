@@ -1672,6 +1672,7 @@ class AgentSession:
             ("openai", "OpenAI", "GPT-5.2, Codex, GPT-4.1"),
             ("google", "Google", "Gemini 2.5 Flash/Pro, Gemini 3"),
             ("ollama", "Ollama", "Local models — no API key"),
+            ("lmstudio", "LM Studio", "Local models via LM Studio server — no API key"),
         ]
 
         console.print()
@@ -1715,12 +1716,13 @@ class AgentSession:
             "openai": "OPENAI_API_KEY",
             "google": "GOOGLE_API_KEY",
             "ollama": "",
+            "lmstudio": "",
         }
         env_key = env_map.get(new_provider, "")
         if env_key:
             key = key or os.getenv(env_key, "")
 
-        if not key and new_provider != "ollama":
+        if not key and new_provider not in ("ollama", "lmstudio"):
             render_error(
                 f"No API key for {new_provider}. "
                 f"Run [bold]cvc setup[/bold] to configure it first."
@@ -1736,6 +1738,7 @@ class AgentSession:
             "openai": "https://api.openai.com",
             "google": "https://generativelanguage.googleapis.com",
             "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+            "lmstudio": os.getenv("LMSTUDIO_HOST", "http://localhost:1234"),
         }
         self.llm._api_url = base_url_map.get(new_provider, "")
 
@@ -1827,13 +1830,14 @@ async def _run_agent_async(
             "openai": "OPENAI_API_KEY",
             "google": "GOOGLE_API_KEY",
             "ollama": "",
+            "lmstudio": "",
         }
         env_key = env_map.get(provider, "")
         api_key = os.getenv(env_key, "") if env_key else ""
         if not api_key:
             api_key = gc.api_keys.get(provider, "")
 
-    if not api_key and provider != "ollama":
+    if not api_key and provider not in ("ollama", "lmstudio"):
         render_error(
             f"No API key found for {provider}. "
             "Run [bold]cvc setup[/bold] or set the environment variable."
@@ -1875,6 +1879,7 @@ async def _run_agent_async(
         "openai": "https://api.openai.com",
         "google": "https://generativelanguage.googleapis.com",
         "ollama": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        "lmstudio": os.getenv("LMSTUDIO_HOST", "http://localhost:1234"),
     }
     base_url = base_url_map.get(provider, "")
 

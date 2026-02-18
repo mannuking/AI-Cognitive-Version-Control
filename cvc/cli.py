@@ -502,11 +502,24 @@ MODEL_CATALOG = {
         ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
         ("gemini-2.5-flash", "Best price-performance (GA)", "Standard"),
     ],
+    # Confirmed tools badge on Ollama library as of Feb 2026
     "ollama": [
-        ("qwen2.5-coder:7b", "Best coding model — 11M+ pulls", "~4 GB"),
-        ("qwen3-coder:30b", "Latest agentic coding model", "~18 GB"),
-        ("devstral:24b", "Mistral's best open-source coding agent", "~14 GB"),
-        ("deepseek-r1:8b", "Open reasoning model (chain-of-thought)", "~5 GB"),
+        ("qwen2.5-coder:7b", "Best 7B coding — 11M+ pulls, tools ✓", "~4 GB"),
+        ("qwen3:14b", "Qwen3 — thinking + non-thinking modes, tools ✓", "~9 GB"),
+        ("qwen3-coder:30b", "Agentic coder — MoE, 256K context, tools ✓", "~19 GB"),
+        ("devstral:24b", "Mistral best open-source coding agent, tools ✓", "~14 GB"),
+        ("deepseek-r1:8b", "DeepSeek-R1 — reasoning + tool calling", "~5 GB"),
+        ("mistral-small3.2:24b", "Improved function calling + vision, tools ✓", "~15 GB"),
+        ("qwq:32b", "QwQ deep reasoning + tool calling", "~20 GB"),
+        ("llama3.3:70b", "Meta Llama 3.3 — powerful general model, tools ✓", "~40 GB"),
+    ],
+    "lmstudio": [
+        ("qwen2.5-coder-32b-instruct", "Best local coding — native tools", "~18 GB"),
+        ("qwen3-14b", "Qwen3 14B — thinking mode + tool calling", "~9 GB"),
+        ("devstral-small-2505", "Mistral agentic coding model, tool calling", "~14 GB"),
+        ("deepseek-r1-distill-qwen-32b", "Reasoning + coding, chain-of-thought", "~18 GB"),
+        ("gemma-3-27b-it", "Google Gemma 3 27B instruction tuned", "~15 GB"),
+        ("mistral-small-3.2-24b-instruct", "Improved function calling over 3.1", "~13 GB"),
     ],
 }
 
@@ -514,7 +527,7 @@ MODEL_CATALOG = {
 @main.command()
 @click.option(
     "--provider",
-    type=click.Choice(["anthropic", "openai", "google", "ollama"], case_sensitive=False),
+    type=click.Choice(["anthropic", "openai", "google", "ollama", "lmstudio"], case_sensitive=False),
     default=None,
     help="LLM provider (uses config default if omitted).",
 )
@@ -540,7 +553,7 @@ def agent(provider: str | None, model: str, api_key: str) -> None:
 
     # Resolve API key
     key = api_key or gc.api_keys.get(prov, "") or ""
-    if prov != "ollama" and not key:
+    if prov not in ("ollama", "lmstudio") and not key:
         console.print(
             f"[bold red]No API key for {prov}.[/bold red] Run [bold]cvc setup[/bold] first, "
             "or pass [bold]--api-key[/bold]."
@@ -560,7 +573,7 @@ def agent(provider: str | None, model: str, api_key: str) -> None:
 @main.command()
 @click.option(
     "--provider",
-    type=click.Choice(["anthropic", "openai", "google", "ollama"], case_sensitive=False),
+    type=click.Choice(["anthropic", "openai", "google", "ollama", "lmstudio"], case_sensitive=False),
     prompt=False,
     help="LLM provider (interactive prompt if omitted).",
 )
@@ -686,8 +699,8 @@ def setup(provider: str | None, model: str, api_key: str, first_run: bool = Fals
             defaults = PROVIDER_DEFAULTS[provider]
             env_key = defaults["env_key"]
 
-            if provider == "ollama":
-                _success("Ollama doesn't need an API key — it runs locally!")
+            if provider in ("ollama", "lmstudio"):
+                _success(f"{provider.title()} doesn't need an API key — it runs locally!")
                 console.print()
                 return
 
@@ -742,7 +755,8 @@ def setup(provider: str | None, model: str, api_key: str, first_run: bool = Fals
             (("anthropic", "Anthropic", "Claude Opus 4.6 / 4.5, Sonnet 4.5", "#CC3333")),
             (("openai", "OpenAI", "GPT-5.2, GPT-5.2-Codex", "#CC6666")),
             (("google", "Google", "Gemini 3/2.5 Pro, Gemini 3/2.5 Flash", "#AA8844")),
-            ("ollama", "Ollama", "Local models — no API key needed!", "magenta"),
+            ("ollama", "Ollama", "Local models via Ollama — no API key needed!", "magenta"),
+            ("lmstudio", "LM Studio", "Local models via LM Studio server — no API key needed!", "cyan"),
         ]
         for i, (key, name, desc, color) in enumerate(providers, 1):
             console.print(
@@ -752,7 +766,7 @@ def setup(provider: str | None, model: str, api_key: str, first_run: bool = Fals
 
         choice = click.prompt(
             "  Enter number",
-            type=click.IntRange(1, 4),
+            type=click.IntRange(1, 5),
         )
         provider = providers[choice - 1][0]
 
@@ -818,11 +832,28 @@ def setup(provider: str | None, model: str, api_key: str, first_run: bool = Fals
         console.print()
         console.print(
             Panel(
-                f"Make sure Ollama is running:\n\n"
-                f"  [#CC3333]$[/#CC3333] ollama serve\n"
-                f"  [#CC3333]$[/#CC3333] ollama pull {chosen_model}",
+                f"Ollama runs automatically in the background on Windows/macOS.\n"
+                f"Just make sure the model is downloaded:\n\n"
+                f"  [#CC3333]$[/#CC3333] ollama pull {chosen_model}\n\n"
+                f"[dim]Linux only:[/dim] if Ollama isn't running as a service, start it with:\n"
+                f"  [dim]$ ollama serve[/dim]",
                 border_style="#6B2020",
-                title="[bold #AA6666]Local Setup[/bold #AA6666]",
+                title="[bold #AA6666]Local Setup — Ollama[/bold #AA6666]",
+                padding=(1, 2),
+            )
+        )
+    elif provider == "lmstudio":
+        _success("No API key needed for LM Studio — it runs locally!")
+        console.print()
+        console.print(
+            Panel(
+                f"Make sure LM Studio is running with a model loaded:\n\n"
+                f"  1. Open LM Studio\n"
+                f"  2. Go to [bold]Developer → Local Server[/bold]\n"
+                f"  3. Load model [bold]{chosen_model}[/bold] and click [bold]Start Server[/bold]\n"
+                f"  4. Default URL: http://localhost:1234",
+                border_style="#6B2020",
+                title="[bold #AA6666]Local Setup — LM Studio[/bold #AA6666]",
                 padding=(1, 2),
             )
         )
@@ -912,7 +943,7 @@ def setup(provider: str | None, model: str, api_key: str, first_run: bool = Fals
 
     # ─── Summary ─────────────────────────────────────────────────────────
     key_display = "[#55AA55]● saved[/#55AA55]"
-    if provider == "ollama":
+    if provider in ("ollama", "lmstudio"):
         key_display = "[dim]not needed[/dim]"
     elif not api_key and os.environ.get(env_key, ""):
         key_display = "[#55AA55]● from env[/#55AA55]"

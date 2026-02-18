@@ -8,8 +8,7 @@ Supported providers:
     - ``anthropic``  — Claude Opus 4.6 / Opus 4.5 / Sonnet 4.5 / Haiku 4.5
     - ``openai``     — GPT-5.2 / GPT-5.2-Codex / GPT-5-mini
     - ``google``     — Gemini 2.5 Flash / Gemini 2.5 Pro / Gemini 3 Pro Preview
-    - ``ollama``     — Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 (local)
-"""
+    - ``ollama``     — Qwen 2.5 Coder / Qwen 3 Coder / DeepSeek-R1 (local)    - ``lmstudio``   — Any model loaded in LM Studio's local server (local)"""
 
 from __future__ import annotations
 
@@ -33,6 +32,10 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "ollama": {
         "model": "qwen2.5-coder:7b",
         "env_key": "",  # No API key needed for local models
+    },
+    "lmstudio": {
+        "model": "loaded-model",
+        "env_key": "",  # No API key needed — LM Studio accepts any value
     },
 }
 
@@ -89,6 +92,15 @@ def create_adapter(
             api_key=api_key,
             model=model,
             base_url=base_url or "http://localhost:11434",
+        )
+
+    elif provider == "lmstudio":
+        from cvc.adapters.lmstudio import LMStudioAdapter
+
+        return LMStudioAdapter(
+            api_key=api_key or "lm-studio",
+            model=model,
+            base_url=base_url or "http://localhost:1234",
         )
 
     raise ValueError(f"Unknown provider: '{provider}'")
