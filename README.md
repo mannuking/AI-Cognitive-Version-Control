@@ -366,8 +366,6 @@ Run <b>any AI tool</b> through<br>CVC's time machine via<br><b>API proxy</b> or 
 
 #### 🎯 **Recommended: One-Line Installer** (Installs Python if needed)
 
-<div align="center">
-
 ```bash
 # 🎧 macOS / Linux / WSL
 curl -fsSL https://jaimeena.com/cvc/install.sh | bash
@@ -375,8 +373,6 @@ curl -fsSL https://jaimeena.com/cvc/install.sh | bash
 # 🪟 Windows PowerShell
 irm https://jaimeena.com/cvc/install.ps1 | iex
 ```
-
-</div>
 
 <details>
 <summary><b>📦 Alternative: pip / uv</b></summary>
@@ -402,8 +398,6 @@ pip install "tm-ai[google]"      # Gemini
 
 ### **Usage**
 
-<div align="center">
-
 ```bash
 # 🤖 Agent Mode - Just type 'cvc'
 cvc
@@ -417,13 +411,9 @@ cvc launch cursor          # Cursor IDE
 cvc up                     # Setup + init + serve
 ```
 
-</div>
-
 <br>
 
 ### **Set API Keys**
-
-<div align="center">
 
 ```bash
 # Environment variables
@@ -434,8 +424,6 @@ export GOOGLE_API_KEY="AIza..."
 # Or interactive setup
 cvc setup
 ```
-
-</div>
 
 <br>
 
