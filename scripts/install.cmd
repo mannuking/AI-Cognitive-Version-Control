@@ -21,7 +21,12 @@ if %ERRORLEVEL% NEQ 0 (
 echo =^> Launching PowerShell installer...
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://jaimeena.com/cvc/install.ps1 | iex"
+:: Run the PowerShell installer.
+:: We deliberately use -Command with explicit exit 0 so that non-fatal
+:: warnings from uv (e.g. locked exe, old subcommand) do not make the
+:: CMD script report a failure.
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "try { irm https://jaimeena.com/cvc/install.ps1 | iex } catch { Write-Host $_.Exception.Message -ForegroundColor Red; exit 1 }; exit 0"
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

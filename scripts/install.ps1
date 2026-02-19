@@ -64,15 +64,32 @@ Write-Step "Installing $DisplayName from PyPI..."
 $toolList = uv tool list 2>&1
 if ($toolList -match "(^|\s)$PyPIName(\s|@|$)") {
     Write-Step "Existing uv-managed installation found — upgrading..."
-    uv tool upgrade $PyPIName
-    Write-Ok "CVC upgraded to latest version"
+
+    # Capture upgrade output; uv exits non-zero if the .exe is locked (in use)
+    $upgradeOut = uv tool upgrade $PyPIName 2>&1
+    $upgradeOk  = $LASTEXITCODE -eq 0
+
+    if (-not $upgradeOk -and ($upgradeOut -match "being used by another process|os error 32|Failed to install entrypoint")) {
+        Write-Host ""
+        Write-Host "  WARNING: CVC is currently running — the executable is locked." -ForegroundColor Yellow
+        Write-Host "  The package was downloaded successfully but the entrypoint could not be replaced." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Fix: Close all CVC windows / terminals, then re-run this installer." -ForegroundColor Cyan
+        Write-Host "  (Or run:  uv tool upgrade tm-ai  after closing CVC)" -ForegroundColor Cyan
+        Write-Host ""
+    } elseif (-not $upgradeOk) {
+        Write-Host "  Note: Upgrade returned a warning (may still have succeeded):" -ForegroundColor Yellow
+        Write-Host "  $upgradeOut" -ForegroundColor DarkGray
+    } else {
+        Write-Ok "CVC upgraded to latest version"
+    }
 } else {
     uv tool install $PackageName --python 3.11
     Write-Ok "CVC installed successfully"
 }
 
 # Ensure tool bin directory is on the user PATH
-try { uv tool update-shell | Out-Null } catch {}
+try { uv tool update-shell 2>&1 | Out-Null } catch {}
 
 # ── Step 3: Verify & detect PATH conflicts ────────────────────────────────────
 Write-Step "Verifying installation..."
@@ -81,9 +98,22 @@ Write-Step "Verifying installation..."
 $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + `
             [System.Environment]::GetEnvironmentVariable("Path", "Machine")
 
-# Locate the uv-managed cvc binary directly (source of truth)
-$uvBinDir   = (uv tool bin 2>&1 | Select-Object -First 1).ToString().Trim()
-$uvCvcPath  = Join-Path $uvBinDir "$ToolName.exe"
+# Locate the uv tool bin directory.
+# Modern uv: "uv tool dir --bin"   Older uv: falls back to common default path.
+$uvBinDir = $null
+try {
+    $dirOut = uv tool dir --bin 2>&1
+    if ($LASTEXITCODE -eq 0 -and $dirOut) {
+        $uvBinDir = $dirOut.ToString().Trim()
+    }
+} catch {}
+
+if (-not $uvBinDir) {
+    # Fallback: uv's default bin dir on Windows is %USERPROFILE%\.local\bin
+    $uvBinDir = Join-Path $env:USERPROFILE ".local\bin"
+}
+
+$uvCvcPath = Join-Path $uvBinDir "$ToolName.exe"
 
 # Verify the uv-installed binary works and get its version
 if (Test-Path $uvCvcPath) {
