@@ -1052,6 +1052,11 @@ class AgentLLM:
 
         try:
             async with self._client.stream("POST", "/api/chat", json=body) as resp:
+                # Must read the body before calling raise_for_status() inside a
+                # streaming context — httpx raises ResponseNotRead otherwise when
+                # it tries to include resp.text in the HTTPStatusError message.
+                if resp.status_code >= 400:
+                    await resp.aread()
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line.strip():
@@ -1063,7 +1068,8 @@ class AgentLLM:
 
                     msg = chunk.get("message", {})
 
-                    # Text content delta
+                    # Text content delta — skip qwen3/thinking-mode "thinking"
+                    # field; only forward the visible "content" to the user.
                     content = msg.get("content", "")
                     if content:
                         yield StreamEvent(type="text_delta", text=content)
