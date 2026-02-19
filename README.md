@@ -47,6 +47,8 @@ irm https://jaimeena.com/cvc/install.ps1 | iex
 [![Code Style](https://img.shields.io/badge/Code_Style-Black-000000?style=for-the-badge&labelColor=2C0000)](https://github.com/psf/black)
 [![Tests](https://img.shields.io/badge/Tests-Passing-55AA55?style=for-the-badge&labelColor=1a5f1f)](https://github.com/mannuking/CVC)
 
+[![Website](https://img.shields.io/badge/🌐_Website-jaimeena.com%2Fcvc-8B0000?style=for-the-badge&labelColor=2C0000)](https://jaimeena.com/cvc)
+
 <br>
 
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -78,6 +80,9 @@ irm https://jaimeena.com/cvc/install.ps1 | iex
 <td align="center"><a href="#-contributing"><b>Contribute</b></a></td>
 <td align="center"><a href="#-roadmap"><b>Roadmap</b></a></td>
 <td align="center"><a href="#-faq"><b>FAQ</b></a></td>
+</tr>
+<tr>
+<td align="center" colspan="5"><a href="https://jaimeena.com/cvc"><b>🌐 jaimeena.com/cvc — Full Website, Docs & Installation</b></a></td>
 </tr>
 </table>
 
@@ -488,6 +493,13 @@ cvc setup
 <sub>Version history</sub>
 </td>
 </tr>
+<tr>
+<td align="center" colspan="4">
+<h3>🌐</h3>
+<b><a href="https://jaimeena.com/cvc">Official Website</a></b><br>
+<sub>Full docs, installation guides, examples & more at <a href="https://jaimeena.com/cvc">jaimeena.com/cvc</a></sub>
+</td>
+</tr>
 </table>
 
 </div>
@@ -691,17 +703,22 @@ cvc/
 
 <table>
 <tr>
-<td align="center" width="33%">
+<td align="center" width="25%">
+<h3>🌐</h3>
+<b>Website</b><br>
+<sub><a href="https://jaimeena.com/cvc">jaimeena.com/cvc →</a></sub>
+</td>
+<td align="center" width="25%">
 <h3>🛠</h3>
 <b>Issues</b><br>
 <sub><a href="https://github.com/mannuking/CVC/issues">Report bugs →</a></sub>
 </td>
-<td align="center" width="33%">
+<td align="center" width="25%">
 <h3>💡</h3>
 <b>Discussions</b><br>
 <sub><a href="https://github.com/mannuking/CVC/discussions">Share ideas →</a></sub>
 </td>
-<td align="center" width="33%">
+<td align="center" width="25%">
 <h3>𝕏</h3>
 <b>Twitter</b><br>
 <sub><a href="https://twitter.com/cvc_ai">Follow updates →</a></sub>
@@ -999,6 +1016,7 @@ This project is free and open source. Use it however you want.
 
 <table>
 <tr>
+<td align="center"><a href="https://jaimeena.com/cvc"><b>🌐 Website</b></a></td>
 <td align="center"><a href="https://github.com/mannuking/CVC"><b>⭐ Star</b></a></td>
 <td align="center"><a href="https://github.com/mannuking/CVC/issues"><b>🛠 Bug Report</b></a></td>
 <td align="center"><a href="https://github.com/mannuking/CVC/issues"><b>💡 Feature Request</b></a></td>
