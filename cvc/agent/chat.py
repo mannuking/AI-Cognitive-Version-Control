@@ -594,6 +594,7 @@ class AgentSession:
 
                 streamer = StreamingRenderer()
                 streaming_started = False
+                _streamer_rendered = False  # True once streamer.finish() has shown the panel
 
                 # PERF: Use lower max_tokens for first turn (conversational
                 # responses rarely exceed 4K). Higher for tool iterations
@@ -604,11 +605,41 @@ class AgentSession:
                 # faster decoding). 0.7 for conversational first response.
                 temp = 0.5 if iterations > 1 else 0.7
 
+                # PERF: Gemini 3 thinking level selection.
+                # Google docs: default (no thinkingConfig) = HIGH dynamic,
+                # which "maximizes reasoning depth" and causes 30-100s
+                # latency even for simple queries on Gemini 3 Pro.
+                #
+                # Fix: explicitly send LOW for first conversational turns
+                # (~5-10s) and only use HIGH for tool iterations that
+                # genuinely need deep reasoning (~30-60s).
+                if iterations > 1:
+                    _think = "HIGH"   # tool iterations → deep reasoning
+                else:
+                    # Estimate query complexity from last user message
+                    _last_user_msg = ""
+                    for _m in reversed(self.messages):
+                        if _m.get("role") == "user":
+                            _c = _m.get("content", "")
+                            _last_user_msg = (
+                                " ".join(
+                                    p.get("text", "")
+                                    for p in _c
+                                    if isinstance(p, dict)
+                                )
+                                if isinstance(_c, list)
+                                else str(_c)
+                            )
+                            break
+                    # Short/simple → LOW (fast). Long/complex → HIGH.
+                    _think = "LOW" if len(_last_user_msg) < 500 else "HIGH"
+
                 async for event in self.llm.chat_stream(
                     messages=self.messages,
                     tools=AGENT_TOOLS,
                     temperature=temp,
                     max_tokens=max_tok,
+                    thinking_level=_think,
                 ):
                     if event.type == "text_delta":
                         if not streaming_started:
@@ -621,6 +652,7 @@ class AgentSession:
                     elif event.type == "tool_call_start":
                         if streaming_started:
                             streamer.finish()
+                            _streamer_rendered = True
                             streaming_started = False
                         if event.tool_call:
                             tool_calls.append(event.tool_call)
@@ -635,6 +667,7 @@ class AgentSession:
 
                 if streaming_started:
                     response_text = streamer.finish()
+                    _streamer_rendered = True
 
             except Exception as exc:
                 # Show clean error to user (no traceback)
@@ -709,7 +742,8 @@ class AgentSession:
                 )
 
                 # Show any text the model produced before tool calls
-                if response_text and not streamer.is_active():
+                # (only if the streaming renderer hasn't already shown it)
+                if response_text and not _streamer_rendered and not streamer.is_active():
                     render_markdown_response(response_text)
 
                 # Execute tool calls — parallel when possible

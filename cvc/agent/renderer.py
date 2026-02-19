@@ -427,15 +427,16 @@ def render_slow_model_warning(model: str) -> None:
     """Display a notice when the user picks an inherently slow thinking model."""
     console.print(
         Panel(
-            f"  [{THEME['warning']}]⚠  {model}[/{THEME['warning']}] is a server-side thinking model.\n"
-            f"  [bold]Expected response time: 60 – 120 s[/bold] even for simple queries.\n"
-            f"  This is a Google API constraint — the model reasons before streaming any tokens.\n\n"
+            f"  [{THEME['warning']}]⚠  {model}[/{THEME['warning']}] is a deep-reasoning preview model.\n"
+            f"  [bold]Simple queries: ~5 – 15 s[/bold] (auto LOW thinking)\n"
+            f"  [bold]Complex / tool iterations: ~30 – 60 s[/bold] (HIGH thinking)\n"
+            f"  CVC auto-selects thinking level based on query complexity.\n\n"
             f"  [{THEME['text_dim']}]Faster alternatives:[/{THEME['text_dim']}]\n"
             f"  [{THEME['text_dim']}]  • [bold]cvc agent --model gemini-2.5-flash[/bold]       ← recommended for daily use[/{THEME['text_dim']}]\n"
-            f"  [{THEME['text_dim']}]  • [bold]cvc agent --model gemini-3-flash-preview[/bold]  ← Gemini 3 speed variant[/{THEME['text_dim']}]\n"
-            f"  [{THEME['text_dim']}]  • [bold]cvc agent --no-think[/bold]                       ← disable thinking (fastest, lower quality)[/{THEME['text_dim']}]",
+            f"  [{THEME['text_dim']}]  • [bold]cvc agent --model gemini-3-flash-preview[/bold]  ← Gemini 3 speed + quality[/{THEME['text_dim']}]\n"
+            f"  [{THEME['text_dim']}]  • [bold]cvc agent --no-think[/bold]                       ← force LOW thinking always[/{THEME['text_dim']}]",
             border_style=THEME["warning"],
-            title=f"[bold {THEME['warning']}] Slow Model Notice [/bold {THEME['warning']}]",
+            title=f"[bold {THEME['warning']}] Thinking Model Notice [/bold {THEME['warning']}]",
             padding=(0, 2),
         )
     )

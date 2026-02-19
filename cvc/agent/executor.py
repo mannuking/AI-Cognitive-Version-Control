@@ -474,7 +474,12 @@ class ToolExecutor:
 
         # Pick the right shell
         if sys.platform == "win32":
-            shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+            # Force UTF-8 output encoding in PowerShell to avoid cp1252 decode errors
+            utf8_prefix = (
+                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+            )
+            shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", utf8_prefix + command]
         else:
             shell_cmd = ["bash", "-c", command]
 
@@ -483,6 +488,8 @@ class ToolExecutor:
                 shell_cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 cwd=str(self.workspace),
                 env={**os.environ, "PYTHONIOENCODING": "utf-8"},

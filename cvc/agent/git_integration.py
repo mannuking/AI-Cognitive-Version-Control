@@ -24,6 +24,8 @@ def is_git_repo(workspace: Path) -> bool:
             ["git", "rev-parse", "--is-inside-work-tree"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(workspace),
             timeout=5,
         )
@@ -57,14 +59,14 @@ def git_status(workspace: Path) -> dict[str, Any]:
         # Current branch
         branch_result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, cwd=str(workspace), timeout=5,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=5,
         )
         result["branch"] = branch_result.stdout.strip()
 
         # Status --porcelain
         status_result = subprocess.run(
             ["git", "status", "--porcelain"],
-            capture_output=True, text=True, cwd=str(workspace), timeout=5,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=5,
         )
 
         for line in status_result.stdout.splitlines():
@@ -88,7 +90,7 @@ def git_status(workspace: Path) -> dict[str, Any]:
         try:
             ab_result = subprocess.run(
                 ["git", "rev-list", "--left-right", "--count", f"HEAD...@{{upstream}}"],
-                capture_output=True, text=True, cwd=str(workspace), timeout=5,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=5,
             )
             if ab_result.returncode == 0:
                 parts = ab_result.stdout.strip().split()
@@ -110,12 +112,12 @@ def git_diff_summary(workspace: Path) -> str:
         # Staged changes
         staged = subprocess.run(
             ["git", "diff", "--cached", "--stat"],
-            capture_output=True, text=True, cwd=str(workspace), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=10,
         )
         # Unstaged changes
         unstaged = subprocess.run(
             ["git", "diff", "--stat"],
-            capture_output=True, text=True, cwd=str(workspace), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=10,
         )
 
         parts = []
@@ -138,19 +140,19 @@ def git_commit(workspace: Path, message: str, add_all: bool = True) -> tuple[boo
         if add_all:
             subprocess.run(
                 ["git", "add", "-A"],
-                capture_output=True, text=True, cwd=str(workspace), timeout=10,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=10,
             )
 
         result = subprocess.run(
             ["git", "commit", "-m", message],
-            capture_output=True, text=True, cwd=str(workspace), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=10,
         )
 
         if result.returncode == 0:
             # Get the commit hash
             hash_result = subprocess.run(
                 ["git", "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True, cwd=str(workspace), timeout=5,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=5,
             )
             commit_hash = hash_result.stdout.strip()
             return True, commit_hash
@@ -169,7 +171,7 @@ def git_log(workspace: Path, limit: int = 10) -> list[dict[str, str]]:
     try:
         result = subprocess.run(
             ["git", "log", f"--max-count={limit}", "--pretty=format:%h|%s|%an|%ar"],
-            capture_output=True, text=True, cwd=str(workspace), timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(workspace), timeout=10,
         )
 
         commits = []

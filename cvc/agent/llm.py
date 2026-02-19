@@ -28,7 +28,7 @@ logger = logging.getLogger("cvc.agent.llm")
 # Granular timeouts: fast connect, generous read for streaming
 _CONNECT_TIMEOUT = 10.0    # TCP + TLS handshake (seconds)
 _READ_TIMEOUT = 180.0      # Streaming read (seconds) — default for most models
-_READ_TIMEOUT_SLOW = 360.0 # Streaming read for slow thinking models (Gemini 3 Pro)
+_READ_TIMEOUT_SLOW = 300.0 # Streaming read for thinking models (Gemini 3 Pro HIGH)
 _WRITE_TIMEOUT = 30.0      # Request body upload
 _POOL_TIMEOUT = 10.0       # Waiting for a connection from the pool
 
@@ -189,8 +189,8 @@ class AgentLLM:
         # Local providers (Ollama, LM Studio) stay on HTTP/1.1
         _use_http2 = _HTTP2_AVAILABLE and self.provider in ("anthropic", "openai", "google")
 
-        # Gemini 3 Pro Preview is an extremely slow thinking model (~2+ min
-        # even for simple prompts).  Use a much longer read timeout so it
+        # Gemini 3 Pro Preview with HIGH thinking level can be slow (~30-60s
+        # even for moderate prompts).  Use a longer read timeout so it
         # doesn't get cut off mid-thought and return 0 output tokens.
         _is_slow_model = (
             self.provider == "google" and "gemini-3-pro" in self.model
@@ -220,16 +220,24 @@ class AgentLLM:
         tools: list[dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: int = 8192,
+        thinking_level: str = "",
     ) -> LLMResponse:
         """
         Send a chat request with tool definitions and return a unified response.
+
+        Parameters
+        ----------
+        thinking_level : str
+            Gemini 3 thinking level hint: "LOW" for fast conversational turns,
+            "HIGH" for deep reasoning (tool iterations).  Ignored for non-Google
+            providers and Gemini 2.5 (which uses thinkingBudget).
         """
         if self.provider == "anthropic":
             return await self._chat_anthropic(messages, tools, temperature, max_tokens)
         elif self.provider == "openai":
             return await self._chat_openai(messages, tools, temperature, max_tokens)
         elif self.provider == "google":
-            return await self._chat_google(messages, tools, temperature, max_tokens)
+            return await self._chat_google(messages, tools, temperature, max_tokens, thinking_level=thinking_level)
         elif self.provider == "ollama":
             return await self._chat_ollama(messages, tools, temperature, max_tokens)
         elif self.provider == "lmstudio":
@@ -244,10 +252,18 @@ class AgentLLM:
         tools: list[dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: int = 8192,
+        thinking_level: str = "",
     ) -> AsyncIterator[StreamEvent]:
         """
         Stream a chat response token-by-token. Yields StreamEvent objects.
         Falls back to non-streaming for providers that don't support it well.
+
+        Parameters
+        ----------
+        thinking_level : str
+            Gemini 3 thinking level hint: "LOW" for fast conversational turns,
+            "HIGH" for deep reasoning (tool iterations).  Ignored for non-Google
+            providers and Gemini 2.5 (which uses thinkingBudget).
         """
         if self.provider == "anthropic":
             async for event in self._stream_anthropic(messages, tools, temperature, max_tokens):
@@ -256,7 +272,7 @@ class AgentLLM:
             async for event in self._stream_openai(messages, tools, temperature, max_tokens):
                 yield event
         elif self.provider == "google":
-            async for event in self._stream_google(messages, tools, temperature, max_tokens):
+            async for event in self._stream_google(messages, tools, temperature, max_tokens, thinking_level=thinking_level):
                 yield event
         elif self.provider == "ollama":
             async for event in self._stream_ollama(messages, tools, temperature, max_tokens):
@@ -501,6 +517,7 @@ class AgentLLM:
         tools: list[dict],
         temperature: float,
         max_tokens: int,
+        thinking_level: str = "",
     ) -> dict[str, Any]:
         """Build the Gemini request body from messages and tools."""
         # Gemini 3 models require temperature=1.0 to avoid looping/degraded output
@@ -608,12 +625,39 @@ class AgentLLM:
         }
 
         # ── Gemini Thinking Configuration ─────────────────────────────────
-        # For Gemini 2.5+ and 3 series, set a thinkingBudget so internal
-        # reasoning doesn't consume the entire output token limit and leave
-        # 0 tokens for the actual response.
-        # Original approach (f5002bf): thinkingBudget = min(max_tokens * 2, 16384)
-        # --no-think flag: set budget to 0 to skip thinking entirely (fastest, lower quality).
-        if "2.5" in self.model or "3" in self.model:
+        # Gemini 3 models default to HIGH dynamic thinking when no
+        # thinkingConfig is sent. Google docs: "The model may take
+        # significantly longer to reach a first output token."
+        # This causes 30-100s latency even for simple prompts.
+        #
+        # Strategy:
+        #   • --no-think  → MINIMAL (Flash) / LOW (Pro)
+        #   • Explicit level from caller → use that level
+        #   • No level specified → default to LOW (Pro) or MEDIUM (Flash)
+        #     instead of omitting thinkingConfig, avoiding the slow HIGH
+        #     dynamic default.
+        #
+        # Gemini 2.5 uses thinkingBudget (integer tokens) — legacy, stable.
+        _is_gemini3 = "gemini-3" in self.model
+        _is_flash = "flash" in self.model
+
+        if _is_gemini3:
+            if self.no_think:
+                # --no-think: force minimum thinking
+                level = "MINIMAL" if _is_flash else "LOW"
+                gen_config["thinkingConfig"] = {"thinkingLevel": level}
+            elif thinking_level:
+                # Explicit level from caller (e.g. HIGH for tool iterations)
+                gen_config["thinkingConfig"] = {
+                    "thinkingLevel": thinking_level.upper(),
+                }
+            else:
+                # No explicit level — use a sensible fast default instead
+                # of omitting thinkingConfig (which defaults to slow HIGH).
+                _default = "MEDIUM" if _is_flash else "LOW"
+                gen_config["thinkingConfig"] = {"thinkingLevel": _default}
+        elif "2.5" in self.model:
+            # Gemini 2.5: use thinkingBudget (legacy, still works well)
             if self.no_think:
                 gen_config["thinkingConfig"] = {"thinkingBudget": 0}
             else:
@@ -640,8 +684,9 @@ class AgentLLM:
         tools: list[dict],
         temperature: float,
         max_tokens: int,
+        thinking_level: str = "",
     ) -> LLMResponse:
-        body = self._build_gemini_body(messages, tools, temperature, max_tokens)
+        body = self._build_gemini_body(messages, tools, temperature, max_tokens, thinking_level=thinking_level)
 
         url = f"/v1beta/models/{self.model}:generateContent?key={self.api_key}"
 
@@ -749,15 +794,16 @@ class AgentLLM:
         tools: list[dict],
         temperature: float,
         max_tokens: int,
+        thinking_level: str = "",
     ) -> AsyncIterator[StreamEvent]:
         """Stream from Google Gemini API using SSE (streamGenerateContent).
 
-        Auto-retries with a safe fallback thinking budget if the model rejects
-        thinkingBudget=0 (some Gemini models require a minimum of 512 tokens).
+        Auto-retries with a safe fallback thinking config if the model rejects
+        the initial thinking configuration.
 
         Also retries up to 2 times on transient server errors (503, 429, 500, 502).
         """
-        body = self._build_gemini_body(messages, tools, temperature, max_tokens)
+        body = self._build_gemini_body(messages, tools, temperature, max_tokens, thinking_level=thinking_level)
 
         url = f"/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"
 
@@ -883,14 +929,15 @@ class AgentLLM:
                         or "Budget" in error_body
                     )
                     if is_thinking_error and not _retry_fallback:
-                        # Fallback: use the opposite thinking param style.
-                        # Gemini 3 → try thinkingBudget (backward compat)
-                        # Gemini 2.5 → try a small thinkingBudget
+                        # Fallback: use the correct param style per model family.
+                        # Gemini 3 → use thinkingLevel (new API)
+                        # Gemini 2.5 → use thinkingBudget (legacy)
                         if "gemini-3" in self.model:
+                            # Fallback: remove thinkingConfig entirely (dynamic)
                             logger.info(
-                                "thinkingLevel rejected — retrying with thinkingBudget=1024 (backward compat)"
+                                "thinkingConfig rejected — retrying WITHOUT thinkingConfig (Gemini 3 dynamic)"
                             )
-                            fallback_thinking = {"thinkingBudget": 1024}
+                            fallback_thinking = None
                         else:
                             logger.info(
                                 "thinkingBudget rejected — retrying with thinkingBudget=1024"
@@ -899,7 +946,10 @@ class AgentLLM:
 
                         fallback_body = dict(body)
                         gc = dict(fallback_body.get("generationConfig", {}))
-                        gc["thinkingConfig"] = fallback_thinking
+                        if fallback_thinking is None:
+                            gc.pop("thinkingConfig", None)  # remove entirely
+                        else:
+                            gc["thinkingConfig"] = fallback_thinking
                         fallback_body["generationConfig"] = gc
                         async for event in self._stream_google_body(
                             fallback_body, url, messages, tools, temperature, max_tokens,

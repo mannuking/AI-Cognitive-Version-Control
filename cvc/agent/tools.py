@@ -508,7 +508,7 @@ MODEL_CATALOG_AGENT: dict[str, list[tuple[str, str, str]]] = {
     "google": [
         ("gemini-2.5-flash", "Best price-performance (GA) — recommended", "Standard"),
         ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
-        ("gemini-3-pro-preview", "Gemini 3 Pro (preview, very slow ~2min/turn)", "Premium"),
+        ("gemini-3-pro-preview", "Gemini 3 Pro (preview, deep reasoning)", "Premium"),
         ("gemini-3-flash-preview", "Gemini 3 Flash (preview, fast thinking)", "Standard"),
         ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
     ],
