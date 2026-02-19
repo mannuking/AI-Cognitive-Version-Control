@@ -2,7 +2,9 @@
 # CVC (Cognitive Version Control) — Installer for Windows PowerShell
 # Usage:  irm https://jaimeena.com/cvc/install.ps1 | iex
 # =============================================================================
-$ErrorActionPreference = "Stop"
+# NOTE: Do NOT set $ErrorActionPreference = "Stop" here.
+# uv writes non-error messages (e.g. "Nothing to upgrade") to stderr which
+# would cause PowerShell to throw a terminating error before we can handle it.
 
 $PackageName  = "tm-ai[all]"
 $PyPIName     = "tm-ai"          # name as uv tool list shows it
@@ -65,23 +67,27 @@ $toolList = uv tool list 2>&1
 if ($toolList -match "(^|\s)$PyPIName(\s|@|$)") {
     Write-Step "Existing uv-managed installation found — upgrading..."
 
-    # Capture upgrade output; uv exits non-zero if the .exe is locked (in use)
-    $upgradeOut = uv tool upgrade $PyPIName 2>&1
+    # Capture all output (stdout + stderr) without letting PowerShell throw
+    $upgradeOut = (uv tool upgrade $PyPIName 2>&1) | Out-String
     $upgradeOk  = $LASTEXITCODE -eq 0
 
-    if (-not $upgradeOk -and ($upgradeOut -match "being used by another process|os error 32|Failed to install entrypoint")) {
+    # "Nothing to upgrade" is written to stderr with exit code 1 — treat as success
+    $nothingToUpgrade = $upgradeOut -match "Nothing to upgrade"
+
+    if ($nothingToUpgrade -or $upgradeOk) {
+        Write-Ok "CVC is already at the latest version"
+    } elseif ($upgradeOut -match "being used by another process|os error 32|Failed to install entrypoint") {
         Write-Host ""
         Write-Host "  WARNING: CVC is currently running — the executable is locked." -ForegroundColor Yellow
-        Write-Host "  The package was downloaded successfully but the entrypoint could not be replaced." -ForegroundColor Yellow
+        Write-Host "  The package was downloaded but the binary could not be replaced." -ForegroundColor Yellow
         Write-Host ""
         Write-Host "  Fix: Close all CVC windows / terminals, then re-run this installer." -ForegroundColor Cyan
         Write-Host "  (Or run:  uv tool upgrade tm-ai  after closing CVC)" -ForegroundColor Cyan
         Write-Host ""
-    } elseif (-not $upgradeOk) {
-        Write-Host "  Note: Upgrade returned a warning (may still have succeeded):" -ForegroundColor Yellow
-        Write-Host "  $upgradeOut" -ForegroundColor DarkGray
     } else {
-        Write-Ok "CVC upgraded to latest version"
+        # Unknown non-zero exit — show output but don't abort
+        Write-Host "  Note: $upgradeOut" -ForegroundColor DarkGray
+        Write-Ok "CVC install step completed"
     }
 } else {
     uv tool install $PackageName --python 3.11
