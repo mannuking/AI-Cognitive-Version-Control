@@ -108,9 +108,13 @@ class AgentLLM:
     # Common model name corrections (typo / shorthand → actual API name)
     _MODEL_ALIASES: dict[str, str] = {
         # Google Gemini aliases
+        # NOTE: gemini-3-pro-preview / gemini-3-flash-preview require Google
+        # allowlist access and are NOT available to standard Gemini API keys.
+        # Keep the explicit names so users who *do* have access can use them,
+        # but point bare shorthands at the stable GA models.
         "gemini-3-pro": "gemini-3-pro-preview",
         "gemini-3-flash": "gemini-3-flash-preview",
-        "gemini-3": "gemini-3-pro-preview",
+        "gemini-3": "gemini-2.5-flash",       # safe default — preview inaccessible without allowlist
         "gemini-2.5": "gemini-2.5-flash",
         "gemini-2.5-flash-preview": "gemini-2.5-flash",
         "gemini-2.5-pro-preview": "gemini-2.5-pro",
@@ -141,10 +145,12 @@ class AgentLLM:
         api_key: str,
         model: str,
         base_url: str = "",
+        no_think: bool = False,
     ) -> None:
         self.provider = provider.lower()
         self.api_key = api_key
         self.base_url = base_url
+        self.no_think = no_think  # If True, disable model thinking (faster, lower quality)
 
         # Auto-correct common model name mistakes
         corrected = self._MODEL_ALIASES.get(model)
@@ -601,39 +607,19 @@ class AgentLLM:
             "maxOutputTokens": max_tokens,
         }
 
-        # ── Gemini Thinking Configuration ──────────────────────────────
-        # Gemini 3 and 2.5 series use DIFFERENT thinking parameters:
-        #
-        # Gemini 3 Pro:   thinkingLevel only ("low" | "high")
-        #                 "minimal" NOT supported, default is "high" (very slow!)
-        # Gemini 3 Flash: thinkingLevel only ("minimal" | "low" | "medium" | "high")
-        # Gemini 2.5:     thinkingBudget only (-1=dynamic, 0=off, N=token cap)
-        #
-        # CRITICAL: Cannot mix thinkingLevel and thinkingBudget → 400 error.
-        #           thinkingBudget is accepted on Gemini 3 for backward compat
-        #           but causes "suboptimal performance" (per Google docs).
-        _is_gemini3 = "gemini-3" in self.model
-        _is_gemini25 = "2.5" in self.model
-
-        if _is_gemini3:
-            # Use thinkingLevel for Gemini 3 — "low" minimizes latency
-            # "high" is default and takes 50+ seconds even for simple queries
-            # NOTE: "low" is the minimum for Gemini 3 Pro ("minimal" not supported).
-            # Latency is primarily server-side; this is already the fastest setting.
-            if "pro" in self.model:
-                gen_config["thinkingConfig"] = {"thinkingLevel": "low"}
+        # ── Gemini Thinking Configuration ─────────────────────────────────
+        # For Gemini 2.5+ and 3 series, set a thinkingBudget so internal
+        # reasoning doesn't consume the entire output token limit and leave
+        # 0 tokens for the actual response.
+        # Original approach (f5002bf): thinkingBudget = min(max_tokens * 2, 16384)
+        # --no-think flag: set budget to 0 to skip thinking entirely (fastest, lower quality).
+        if "2.5" in self.model or "3" in self.model:
+            if self.no_think:
+                gen_config["thinkingConfig"] = {"thinkingBudget": 0}
             else:
-                # Gemini 3 Flash: "minimal" ≈ no thinking, lowest latency
-                gen_config["thinkingConfig"] = {"thinkingLevel": "minimal"}
-        elif _is_gemini25:
-            # Scale thinking budget with output size:
-            #   - Small max_tokens (≤8192, conversational) → cap at 4096 thinking tokens
-            #   - Large max_tokens (>8192, tool iterations) → cap at 8192 thinking tokens
-            # Previous value was 16384 which caused unnecessary latency on simple queries.
-            _think_cap = 4096 if max_tokens <= 8192 else 8192
-            gen_config["thinkingConfig"] = {
-                "thinkingBudget": min(max_tokens, _think_cap),
-            }
+                gen_config["thinkingConfig"] = {
+                    "thinkingBudget": min(max_tokens * 2, 16384),
+                }
 
         body: dict[str, Any] = {
             "contents": gemini_contents,
@@ -683,11 +669,28 @@ class AgentLLM:
             # All retries exhausted
             raise last_exc  # type: ignore[misc]
 
+        if resp.status_code == 403:
+            _is_preview = "gemini-3" in self.model and "preview" in self.model
+            if _is_preview:
+                raise RuntimeError(
+                    f"Access denied (403) to '{self.model}'.\n"
+                    f"gemini-3-pro-preview requires Google allowlist access — "
+                    f"not available to standard Gemini API keys.\n\n"
+                    f"Switch to a GA model: cvc agent --model gemini-2.5-flash"
+                )
+            raise RuntimeError(
+                f"API key rejected (403) for model '{self.model}'.\n"
+                f"Your Google API key is invalid, expired, or was auto-revoked "
+                f"(Google revokes keys that appear in logs or public output).\n\n"
+                f"Fix: Generate a new key at → https://aistudio.google.com/app/apikey\n"
+                f"Then run: cvc setup"
+            )
+
         if resp.status_code == 404:
             raise RuntimeError(
                 f"Model '{self.model}' not found (404). "
                 f"Valid Google models include: gemini-2.5-flash, gemini-2.5-pro, "
-                f"gemini-3-pro-preview, gemini-2.5-flash-lite. "
+                f"gemini-2.5-flash-lite. "
                 f"Run 'cvc setup' to reconfigure or use --model to override."
             )
 
@@ -835,11 +838,28 @@ class AgentLLM:
                         f"Try: [bold]cvc agent --model gemini-2.5-flash[/bold]"
                     )
 
+                if resp.status_code == 403:
+                    _is_preview = "gemini-3" in self.model and "preview" in self.model
+                    if _is_preview:
+                        raise RuntimeError(
+                            f"Access denied (403) to '{self.model}'.\n"
+                            f"gemini-3-pro-preview requires Google allowlist access — "
+                            f"not available to standard Gemini API keys.\n\n"
+                            f"Switch to a GA model: cvc agent --model gemini-2.5-flash"
+                        )
+                    raise RuntimeError(
+                        f"API key rejected (403) for model '{self.model}'.\n"
+                        f"Your Google API key is invalid, expired, or was auto-revoked "
+                        f"(Google revokes keys that appear in logs or public output).\n\n"
+                        f"Fix: Generate a new key at → https://aistudio.google.com/app/apikey\n"
+                        f"Then run: cvc setup"
+                    )
+
                 if resp.status_code == 404:
                     raise RuntimeError(
                         f"Model '{self.model}' not found (404). "
                         f"Valid Google models: gemini-2.5-flash, gemini-2.5-pro, "
-                        f"gemini-3-pro-preview, gemini-3-flash-preview.\n"
+                        f"gemini-2.5-flash-lite.\n"
                         f"Run [bold]cvc setup[/bold] or use [bold]--model gemini-2.5-flash[/bold] to override."
                     )
                 if resp.status_code == 400:

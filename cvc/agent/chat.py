@@ -50,6 +50,7 @@ from cvc.agent.llm import AgentLLM, StreamEvent
 from cvc.agent.renderer import (
     StreamingRenderer,
     agent_banner,
+    animate_thinking,
     console,
     get_input_with_completion,
     get_pending_paste_images,
@@ -68,6 +69,7 @@ from cvc.agent.renderer import (
     render_markdown_response,
     render_memory,
     render_session_resume_prompt,
+    render_slow_model_warning,
     render_status,
     render_success,
     render_thinking,
@@ -578,6 +580,7 @@ class AgentSession:
             iterations += 1
 
             render_thinking(model=self.llm.model)
+            _thinking_task = asyncio.create_task(animate_thinking())
 
             try:
                 # Use streaming for the response
@@ -609,6 +612,7 @@ class AgentSession:
                 ):
                     if event.type == "text_delta":
                         if not streaming_started:
+                            _thinking_task.cancel()  # stop elapsed counter
                             streamer.start()
                             streaming_started = True
                         streamer.add_text(event.text)
@@ -657,6 +661,9 @@ class AgentSession:
                     await asyncio.sleep(1.0 if "503" in _err_lower or "429" in _err_lower else 0.3)
                     continue
                 break
+            finally:
+                # Always stop the elapsed-time ticker — safe to cancel multiple times
+                _thinking_task.cancel()
 
             # Track costs
             turn_cost = self.cost_tracker.add_usage(
@@ -1848,6 +1855,7 @@ async def _run_agent_async(
     provider: str | None = None,
     model: str | None = None,
     api_key: str | None = None,
+    no_think: bool = False,
 ) -> None:
     """Async implementation of the agent REPL."""
     # Load configuration
@@ -1921,6 +1929,7 @@ async def _run_agent_async(
         api_key=api_key or "",
         model=model,
         base_url=base_url,
+        no_think=no_think,
     )
 
     # PERF: Pre-warm the TCP+TLS connection in the background while
@@ -1941,6 +1950,10 @@ async def _run_agent_async(
         branch=engine.active_branch,
         workspace=str(workspace),
     )
+
+    # Warn users when they pick an inherently slow thinking model
+    if provider == "google" and "gemini-3-pro" in (model or ""):
+        render_slow_model_warning(model or "gemini-3-pro-preview")
 
     # ── Git status on startup ────────────────────────────────────────────
     try:
@@ -2254,6 +2267,7 @@ def run_agent(
     provider: str | None = None,
     model: str | None = None,
     api_key: str | None = None,
+    no_think: bool = False,
 ) -> None:
     """
     Start the CVC Agent interactive REPL.
@@ -2265,6 +2279,6 @@ def run_agent(
     workspace = workspace.resolve()
 
     try:
-        asyncio.run(_run_agent_async(workspace, provider, model, api_key))
+        asyncio.run(_run_agent_async(workspace, provider, model, api_key, no_think=no_think))
     except KeyboardInterrupt:
         pass

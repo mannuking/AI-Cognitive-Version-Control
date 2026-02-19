@@ -379,21 +379,67 @@ def render_info(msg: str) -> None:
 
 # Track when the last thinking indicator started (for elapsed time display)
 _thinking_start_time: float = 0.0
+_thinking_model: str = ""
+
+
+def _print_thinking_line(elapsed: float = 0.0) -> None:
+    """Overwrite the current terminal line with the thinking indicator + elapsed time."""
+    model_hint = (
+        f" [{THEME['text_dim']}]({_thinking_model})[/{THEME['text_dim']}]"
+        if _thinking_model else ""
+    )
+    elapsed_hint = (
+        f" [{THEME['warning']}]({elapsed:.0f}s)[/{THEME['warning']}]"
+        if elapsed >= 5 else ""
+    )
+    console.print(
+        f"  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
+        f"[italic {THEME['text_dim']}]Reasoning…[/italic {THEME['text_dim']}]{model_hint}{elapsed_hint}",
+        end="\r",
+    )
 
 
 def render_thinking(model: str = "") -> None:
     """Show a polished thinking indicator with model name."""
-    global _thinking_start_time
+    global _thinking_start_time, _thinking_model
     _thinking_start_time = time.time()
-    model_hint = (
-        f" [{THEME['text_dim']}]({model})[/{THEME['text_dim']}]"
-        if model else ""
-    )
+    _thinking_model = model
+    _print_thinking_line(0.0)
+
+
+async def animate_thinking() -> None:
+    """Background task: update the thinking line with live elapsed time every second.
+
+    Start with ``asyncio.create_task(animate_thinking())`` right after
+    ``render_thinking()``.  Cancel the task as soon as the first token arrives
+    so the elapsed counter disappears cleanly.
+    """
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            elapsed = time.time() - _thinking_start_time
+            _print_thinking_line(elapsed)
+    except asyncio.CancelledError:
+        pass
+
+
+def render_slow_model_warning(model: str) -> None:
+    """Display a notice when the user picks an inherently slow thinking model."""
     console.print(
-        f"  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
-        f"[italic {THEME['text_dim']}]Reasoning…[/italic {THEME['text_dim']}]{model_hint}",
-        end="\r",
+        Panel(
+            f"  [{THEME['warning']}]⚠  {model}[/{THEME['warning']}] is a server-side thinking model.\n"
+            f"  [bold]Expected response time: 60 – 120 s[/bold] even for simple queries.\n"
+            f"  This is a Google API constraint — the model reasons before streaming any tokens.\n\n"
+            f"  [{THEME['text_dim']}]Faster alternatives:[/{THEME['text_dim']}]\n"
+            f"  [{THEME['text_dim']}]  • [bold]cvc agent --model gemini-2.5-flash[/bold]       ← recommended for daily use[/{THEME['text_dim']}]\n"
+            f"  [{THEME['text_dim']}]  • [bold]cvc agent --model gemini-3-flash-preview[/bold]  ← Gemini 3 speed variant[/{THEME['text_dim']}]\n"
+            f"  [{THEME['text_dim']}]  • [bold]cvc agent --no-think[/bold]                       ← disable thinking (fastest, lower quality)[/{THEME['text_dim']}]",
+            border_style=THEME["warning"],
+            title=f"[bold {THEME['warning']}] Slow Model Notice [/bold {THEME['warning']}]",
+            padding=(0, 2),
+        )
     )
+    console.print()
 
 
 def render_token_usage(

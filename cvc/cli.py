@@ -536,7 +536,18 @@ MODEL_CATALOG = {
 )
 @click.option("--model", default="", help="Model override (uses provider default if empty).")
 @click.option("--api-key", default="", help="API key override.")
-def agent(provider: str | None, model: str, api_key: str) -> None:
+@click.option(
+    "--no-think",
+    "no_think",
+    is_flag=True,
+    default=False,
+    help=(
+        "Disable model reasoning/thinking phase for faster responses. "
+        "Mainly useful for slow thinking models like gemini-3-pro-preview. "
+        "Tradeoff: lower response quality on complex tasks."
+    ),
+)
+def agent(provider: str | None, model: str, api_key: str, no_think: bool) -> None:
     """Interactive AI coding agent — Claude Code on steroids with Time Machine."""
     from cvc.core.models import GlobalConfig
 
@@ -565,7 +576,7 @@ def agent(provider: str | None, model: str, api_key: str) -> None:
 
     from cvc.agent import run_agent
 
-    run_agent(provider=prov, model=mdl, api_key=key)
+    run_agent(provider=prov, model=mdl, api_key=key, no_think=no_think)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
