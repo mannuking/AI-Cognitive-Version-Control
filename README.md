@@ -42,7 +42,7 @@ irm https://jaimeena.com/cvc/install.ps1 | iex
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-CC3333?style=for-the-badge&logo=python&logoColor=white&labelColor=2C0000)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/Status-Production_Ready-FF4444?style=for-the-badge&labelColor=2C0000)](https://github.com/mannuking/CVC)
 
-[![Downloads](https://img.shields.io/pypi/dt/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&labelColor=2C0000&color=8B0000)](https://pypi.org/project/tm-ai/)
+[![Downloads](https://img.shields.io/pypi/dm/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&label=Downloads&labelColor=2C0000&color=8B0000)](https://pypi.org/project/tm-ai/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-55AA55?style=for-the-badge&logoColor=white&labelColor=1a5f1f)](http://makeapullrequest.com)
 [![Code Style](https://img.shields.io/badge/Code_Style-Black-000000?style=for-the-badge&labelColor=2C0000)](https://github.com/psf/black)
 [![Tests](https://img.shields.io/badge/Tests-Passing-55AA55?style=for-the-badge&labelColor=1a5f1f)](https://github.com/mannuking/CVC)
