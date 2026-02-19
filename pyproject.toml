@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tm-ai"
-version = "1.5.4"
+version = "1.5.91"
 description = "Time Machine for AI Agents — Cognitive Version Control for LLM context"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
-    "httpx>=0.27.0",
+    "httpx[http2]>=0.27.0",
     "pydantic>=2.9.0",
     "click>=8.1.0",
     "rich>=13.0.0",

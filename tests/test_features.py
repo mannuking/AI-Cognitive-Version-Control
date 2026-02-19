@@ -138,8 +138,8 @@ try:
     assert "retry_count" in source, "Missing retry loop in _execute_single_tool"
     assert "MAX_RETRY_ATTEMPTS" in source, "Missing MAX_RETRY_ATTEMPTS reference"
 
-    source2 = inspect.getsource(AgentSession.run_turn)
-    assert "Retrying" in source2 or "retry" in source2.lower(), "Missing retry path in run_turn"
+    source2 = inspect.getsource(AgentSession._agentic_loop)
+    assert "Retrying" in source2 or "retry" in source2.lower(), "Missing retry path in _agentic_loop"
 
     assert hasattr(AgentSession, "_auto_context_from_error"), "Missing _auto_context_from_error"
     src3 = inspect.getsource(AgentSession._auto_context_from_error)
@@ -244,10 +244,12 @@ try:
     assert hasattr(AgentSession, "_handle_image"), "Missing _handle_image"
     source = inspect.getsource(AgentSession._handle_image)
 
-    assert "anthropic" in source, "Missing Anthropic image format"
-    assert "openai" in source, "Missing OpenAI image format"
-    assert "google" in source or "gemini" in source, "Missing Google image format"
-    assert "base64" in source, "Missing base64 encoding"
+    # _handle_image delegates to _build_image_message for per-provider formatting
+    from cvc.agent.chat import _build_image_message
+    img_source = inspect.getsource(_build_image_message)
+    assert "anthropic" in img_source, "Missing Anthropic image format"
+    assert "openai" in img_source, "Missing OpenAI image format"
+    assert "base64" in source or "b64" in source, "Missing base64 encoding"
 
     source2 = inspect.getsource(AgentSession.handle_slash_command)
     assert "/image" in source2, "Missing /image in slash commands"

@@ -485,22 +485,25 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
 MODEL_CATALOG = {
     "anthropic": [
-        ("claude-opus-4-6", "Most intelligent — agents & coding", "$5/$25 per MTok"),
+        ("claude-opus-4-6", "Most intelligent — agents & coding (Feb 2026)", "$5/$25 per MTok"),
+        ("claude-sonnet-4-6", "Best speed/intelligence balance (Feb 2026)", "$3/$15 per MTok"),
         ("claude-opus-4-5", "Previous flagship — excellent reasoning", "$5/$25 per MTok"),
-        ("claude-sonnet-4-5", "Best speed / intelligence balance", "$3/$15 per MTok"),
+        ("claude-sonnet-4-5", "Previous Sonnet — still great", "$3/$15 per MTok"),
         ("claude-haiku-4-5", "Fastest & cheapest", "$1/$5 per MTok"),
     ],
     "openai": [
-        ("gpt-5.2", "Best for coding & agentic tasks", "Frontier"),
+        ("gpt-5.3", "Newest flagship — best reasoning & coding", "Frontier"),
+        ("gpt-5.2", "Previous flagship — coding & agentic tasks", "Frontier"),
         ("gpt-5.2-codex", "Optimized for agentic coding", "Frontier"),
-        ("gpt-5-mini", "Fast & cost-efficient", "Mid-tier"),
-        ("gpt-4.1", "Smartest non-reasoning model", "Mid-tier"),
+        ("gpt-5-mini", "Fast & cost-efficient GPT-5", "Mid-tier"),
+        ("gpt-4.1", "Instruction following & tool calling (1M ctx)", "Mid-tier"),
     ],
     "google": [
-        ("gemini-3-pro-preview", "Newest multimodal & agentic", "Premium"),
-        ("gemini-3-flash-preview", "Fast Gemini 3", "Standard"),
+        ("gemini-2.5-flash", "Best price-performance (GA) — recommended", "Standard"),
         ("gemini-2.5-pro", "Advanced thinking model (GA)", "Premium"),
-        ("gemini-2.5-flash", "Best price-performance (GA)", "Standard"),
+        ("gemini-3-pro-preview", "Gemini 3 Pro (preview, very slow ~2min/turn)", "Premium"),
+        ("gemini-3-flash-preview", "Gemini 3 Flash (preview, fast thinking)", "Standard"),
+        ("gemini-2.5-flash-lite", "Fastest & cheapest (GA)", "Economy"),
     ],
     # Confirmed tools badge on Ollama library as of Feb 2026
     "ollama": [

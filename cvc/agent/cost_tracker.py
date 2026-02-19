@@ -16,9 +16,11 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     # Anthropic
     "claude-opus-4-6":      (15.0, 75.0),
     "claude-opus-4-5":      (15.0, 75.0),
+    "claude-sonnet-4-6":    (3.0, 15.0),
     "claude-sonnet-4-5":    (3.0, 15.0),
     "claude-haiku-4-5":     (0.80, 4.0),
     # OpenAI
+    "gpt-5.3":              (2.50, 10.0),
     "gpt-5.2":              (2.50, 10.0),
     "gpt-5.2-codex":        (2.50, 10.0),
     "gpt-5-mini":           (0.40, 1.60),

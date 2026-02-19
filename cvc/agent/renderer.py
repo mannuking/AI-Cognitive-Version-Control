@@ -377,11 +377,21 @@ def render_info(msg: str) -> None:
     console.print(f"  [{THEME['text_dim']}]→[/{THEME['text_dim']}] {msg}")
 
 
-def render_thinking() -> None:
-    """Show a polished thinking indicator."""
+# Track when the last thinking indicator started (for elapsed time display)
+_thinking_start_time: float = 0.0
+
+
+def render_thinking(model: str = "") -> None:
+    """Show a polished thinking indicator with model name."""
+    global _thinking_start_time
+    _thinking_start_time = time.time()
+    model_hint = (
+        f" [{THEME['text_dim']}]({model})[/{THEME['text_dim']}]"
+        if model else ""
+    )
     console.print(
         f"  [{THEME['primary_dim']}]⟫[/{THEME['primary_dim']}] "
-        f"[italic {THEME['text_dim']}]Reasoning…[/italic {THEME['text_dim']}]",
+        f"[italic {THEME['text_dim']}]Reasoning…[/italic {THEME['text_dim']}]{model_hint}",
         end="\r",
     )
 
@@ -546,6 +556,11 @@ class StreamingRenderer:
     """
     Renders streaming LLM responses token-by-token using Rich Live display.
     
+    PERF: Optimized for minimal time-to-first-visible-token:
+    - Live display starts with minimal overhead (12fps, no initial render)
+    - First few tokens rendered immediately via direct console write
+    - Markdown parsing only kicks in after enough content accumulates
+    
     Usage:
         renderer = StreamingRenderer()
         renderer.start()
@@ -554,20 +569,26 @@ class StreamingRenderer:
         response_text = renderer.finish()
     """
 
+    # Number of characters to accumulate before switching from raw text to markdown
+    _MD_THRESHOLD = 80
+
     def __init__(self) -> None:
         self._buffer = ""
         self._live: Live | None = None
         self._started = False
+        self._first_token_time: float = 0
 
     def start(self) -> None:
         """Start the streaming display."""
         console.print()  # blank line before the streaming panel
         self._buffer = ""
+        self._first_token_time = time.time()
         self._live = Live(
-            Text("▌", style=THEME["text_dim"]),
+            Text("", style=THEME["text_dim"]),
             console=console,
-            refresh_per_second=15,
+            refresh_per_second=12,
             transient=True,
+            vertical_overflow="visible",
         )
         self._live.start()
         self._started = True
@@ -578,8 +599,13 @@ class StreamingRenderer:
             return
         self._buffer += text
         try:
-            md = Markdown(self._buffer + "▌")
-            self._live.update(md)
+            # PERF: For the first few tokens, skip markdown parsing
+            # to get text on screen as fast as possible.
+            if len(self._buffer) < self._MD_THRESHOLD:
+                self._live.update(Text(self._buffer + "▌"))
+            else:
+                md = Markdown(self._buffer + "▌")
+                self._live.update(md)
         except Exception:
             self._live.update(Text(self._buffer + "▌"))
 

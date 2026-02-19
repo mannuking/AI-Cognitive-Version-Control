@@ -12,6 +12,7 @@ Supports both blocking and streaming responses.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -20,6 +21,42 @@ from typing import Any, AsyncIterator
 import httpx
 
 logger = logging.getLogger("cvc.agent.llm")
+
+# ---------------------------------------------------------------------------
+# Performance constants
+# ---------------------------------------------------------------------------
+# Granular timeouts: fast connect, generous read for streaming
+_CONNECT_TIMEOUT = 10.0    # TCP + TLS handshake (seconds)
+_READ_TIMEOUT = 180.0      # Streaming read (seconds) — default for most models
+_READ_TIMEOUT_SLOW = 360.0 # Streaming read for slow thinking models (Gemini 3 Pro)
+_WRITE_TIMEOUT = 30.0      # Request body upload
+_POOL_TIMEOUT = 10.0       # Waiting for a connection from the pool
+
+# Transient error retry settings
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503}  # Rate-limit, server errors
+_MAX_TRANSIENT_RETRIES = 3
+_TRANSIENT_RETRY_BASE_DELAY = 1.0  # seconds, doubles each retry
+
+_TIMEOUT = httpx.Timeout(
+    connect=_CONNECT_TIMEOUT,
+    read=_READ_TIMEOUT,
+    write=_WRITE_TIMEOUT,
+    pool=_POOL_TIMEOUT,
+)
+
+# Connection pool limits — keep connections alive to skip TLS on subsequent requests
+_POOL_LIMITS = httpx.Limits(
+    max_connections=20,
+    max_keepalive_connections=10,
+    keepalive_expiry=120,  # seconds
+)
+
+# Whether to try HTTP/2 (requires httpx[http2] / h2 package)
+try:
+    import h2  # noqa: F401
+    _HTTP2_AVAILABLE = True
+except ImportError:
+    _HTTP2_AVAILABLE = False
 
 
 @dataclass
@@ -79,6 +116,23 @@ class AgentLLM:
         "gemini-2.5-pro-preview": "gemini-2.5-pro",
         "gemini-pro": "gemini-2.5-pro",
         "gemini-flash": "gemini-2.5-flash",
+        # Anthropic aliases
+        "claude-opus": "claude-opus-4-6",
+        "claude-sonnet": "claude-sonnet-4-6",
+        "claude-haiku": "claude-haiku-4-5",
+        "opus": "claude-opus-4-6",
+        "opus-4.5": "claude-opus-4-5",
+        "opus-4.6": "claude-opus-4-6",
+        "sonnet": "claude-sonnet-4-6",
+        "sonnet-4.5": "claude-sonnet-4-5",
+        "sonnet-4.6": "claude-sonnet-4-6",
+        "haiku": "claude-haiku-4-5",
+        # OpenAI aliases
+        "gpt5": "gpt-5.2",
+        "gpt-5": "gpt-5.2",
+        "gpt5.2": "gpt-5.2",
+        "gpt5.3": "gpt-5.3",
+        "gpt-5-mini": "gpt-5-mini",
     }
 
     def __init__(
@@ -125,11 +179,34 @@ class AgentLLM:
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
+        # Use HTTP/2 for cloud providers (reduces latency via multiplexing)
+        # Local providers (Ollama, LM Studio) stay on HTTP/1.1
+        _use_http2 = _HTTP2_AVAILABLE and self.provider in ("anthropic", "openai", "google")
+
+        # Gemini 3 Pro Preview is an extremely slow thinking model (~2+ min
+        # even for simple prompts).  Use a much longer read timeout so it
+        # doesn't get cut off mid-thought and return 0 output tokens.
+        _is_slow_model = (
+            self.provider == "google" and "gemini-3-pro" in self.model
+        )
+        _read_timeout = _READ_TIMEOUT_SLOW if _is_slow_model else _READ_TIMEOUT
+        _timeout = httpx.Timeout(
+            connect=_CONNECT_TIMEOUT,
+            read=_read_timeout,
+            write=_WRITE_TIMEOUT,
+            pool=_POOL_TIMEOUT,
+        )
+
         self._client = httpx.AsyncClient(
             base_url=self._api_url,
             headers=headers,
-            timeout=180.0,
+            timeout=_timeout,
+            limits=_POOL_LIMITS,
+            http2=_use_http2,
         )
+
+        # Flag: has the TCP+TLS connection been warmed up?
+        self._connection_warmed = False
 
     async def chat(
         self,
@@ -185,6 +262,32 @@ class AgentLLM:
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
 
+    async def warm_connection(self) -> None:
+        """
+        Pre-warm the TCP + TLS connection to the API provider.
+
+        Call this ONCE during startup (while the user sees the banner)
+        so the first real request skips the ~500ms-2s handshake.
+        """
+        if self._connection_warmed:
+            return
+        try:
+            if self.provider == "anthropic":
+                # Lightweight request — Anthropic returns 405 but connection is established
+                await self._client.request("HEAD", "/v1/messages", timeout=5.0)
+            elif self.provider == "openai":
+                await self._client.request("HEAD", "/v1/chat/completions", timeout=5.0)
+            elif self.provider == "google":
+                # Just establish TCP+TLS to the API host
+                await self._client.request("HEAD", "/", timeout=5.0)
+            elif self.provider in ("ollama", "lmstudio"):
+                # Local — check if server is alive
+                await self._client.get("/", timeout=3.0)
+        except Exception:
+            # Connection warming is best-effort — never fail on this
+            pass
+        self._connection_warmed = True
+
     async def close(self) -> None:
         await self._client.aclose()
 
@@ -217,7 +320,14 @@ class AgentLLM:
         }
 
         if system_parts:
-            body["system"] = "\n\n".join(system_parts)
+            combined_system = "\n\n".join(system_parts)
+            body["system"] = [
+                {
+                    "type": "text",
+                    "text": combined_system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         # Convert tools to Anthropic format
         if tools:
@@ -491,10 +601,29 @@ class AgentLLM:
             "maxOutputTokens": max_tokens,
         }
 
-        # For Gemini 2.5+ models with thinking capabilities, configure
-        # a thinking budget so internal reasoning doesn't consume the
-        # entire output token limit and leave 0 for the actual response.
-        if "2.5" in self.model or "3" in self.model:
+        # ── Gemini Thinking Configuration ──────────────────────────────
+        # Gemini 3 and 2.5 series use DIFFERENT thinking parameters:
+        #
+        # Gemini 3 Pro:   thinkingLevel only ("low" | "high")
+        #                 "minimal" NOT supported, default is "high" (very slow!)
+        # Gemini 3 Flash: thinkingLevel only ("minimal" | "low" | "medium" | "high")
+        # Gemini 2.5:     thinkingBudget only (-1=dynamic, 0=off, N=token cap)
+        #
+        # CRITICAL: Cannot mix thinkingLevel and thinkingBudget → 400 error.
+        #           thinkingBudget is accepted on Gemini 3 for backward compat
+        #           but causes "suboptimal performance" (per Google docs).
+        _is_gemini3 = "gemini-3" in self.model
+        _is_gemini25 = "2.5" in self.model
+
+        if _is_gemini3:
+            # Use thinkingLevel for Gemini 3 — "low" minimizes latency
+            # "high" is default and takes 50+ seconds even for simple queries
+            if "pro" in self.model:
+                gen_config["thinkingConfig"] = {"thinkingLevel": "low"}
+            else:
+                # Gemini 3 Flash: "minimal" ≈ no thinking, lowest latency
+                gen_config["thinkingConfig"] = {"thinkingLevel": "minimal"}
+        elif _is_gemini25:
             gen_config["thinkingConfig"] = {
                 "thinkingBudget": min(max_tokens * 2, 16384),
             }
@@ -522,7 +651,30 @@ class AgentLLM:
         body = self._build_gemini_body(messages, tools, temperature, max_tokens)
 
         url = f"/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-        resp = await self._client.post(url, json=body)
+
+        # Retry loop for transient server errors (503, 429, 500, 502)
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_TRANSIENT_RETRIES + 1):
+            resp = await self._client.post(url, json=body)
+
+            if resp.status_code in _TRANSIENT_STATUS_CODES:
+                delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning(
+                    "Gemini %d (attempt %d/%d) — retrying in %.1fs…",
+                    resp.status_code, attempt + 1, _MAX_TRANSIENT_RETRIES + 1, delay,
+                )
+                last_exc = RuntimeError(
+                    f"Gemini {resp.status_code} for model '{self.model}' "
+                    f"(tried {_MAX_TRANSIENT_RETRIES + 1} times). "
+                    f"The model may be temporarily overloaded. "
+                    f"Try 'gemini-2.5-flash' or retry in a few seconds."
+                )
+                await asyncio.sleep(delay)
+                continue
+            break  # non-transient status — stop retrying
+        else:
+            # All retries exhausted
+            raise last_exc  # type: ignore[misc]
 
         if resp.status_code == 404:
             raise RuntimeError(
@@ -588,11 +740,63 @@ class AgentLLM:
         temperature: float,
         max_tokens: int,
     ) -> AsyncIterator[StreamEvent]:
-        """Stream from Google Gemini API using SSE (streamGenerateContent)."""
+        """Stream from Google Gemini API using SSE (streamGenerateContent).
+
+        Auto-retries with a safe fallback thinking budget if the model rejects
+        thinkingBudget=0 (some Gemini models require a minimum of 512 tokens).
+
+        Also retries up to 2 times on transient server errors (503, 429, 500, 502).
+        """
         body = self._build_gemini_body(messages, tools, temperature, max_tokens)
 
         url = f"/v1beta/models/{self.model}:streamGenerateContent?key={self.api_key}&alt=sse"
 
+        # Retry loop for transient server errors (503/429/500/502)
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_TRANSIENT_RETRIES):
+            try:
+                async for event in self._stream_google_body(body, url, messages, tools, temperature, max_tokens):
+                    yield event
+                return  # success — exit
+            except RuntimeError as exc:
+                err_lower = str(exc).lower()
+                _is_transient = any(code in err_lower for code in ("503", "502", "429", "500", "overloaded", "unavailable", "capacity"))
+                if _is_transient and attempt < _MAX_TRANSIENT_RETRIES - 1:
+                    delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Gemini streaming transient error (attempt %d/%d) — retrying in %.1fs…",
+                        attempt + 1, _MAX_TRANSIENT_RETRIES, delay,
+                    )
+                    last_exc = exc
+                    await asyncio.sleep(delay)
+                    continue
+                raise  # non-transient or last attempt — propagate
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in _TRANSIENT_STATUS_CODES and attempt < _MAX_TRANSIENT_RETRIES - 1:
+                    delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Gemini streaming HTTP %d (attempt %d/%d) — retrying in %.1fs…",
+                        exc.response.status_code, attempt + 1, _MAX_TRANSIENT_RETRIES, delay,
+                    )
+                    last_exc = exc
+                    await asyncio.sleep(delay)
+                    continue
+                raise RuntimeError(
+                    f"Gemini streaming error ({exc.response.status_code}) for model '{self.model}'. "
+                    f"Try: cvc agent --model gemini-2.5-flash"
+                ) from exc
+
+    async def _stream_google_body(
+        self,
+        body: dict,
+        url: str,
+        messages: list[dict],
+        tools: list[dict],
+        temperature: float,
+        max_tokens: int,
+        _retry_fallback: bool = False,
+    ) -> AsyncIterator[StreamEvent]:
+        """Inner streaming implementation with automatic thinking-budget fallback."""
         tool_calls: list[ToolCall] = []
         all_raw_parts: list[dict] = []  # accumulate raw parts for thoughtSignature
         prompt_tokens = 0
@@ -602,12 +806,34 @@ class AgentLLM:
 
         try:
             async with self._client.stream("POST", url, json=body) as resp:
+                # ── Transient server errors (503, 429, 500, 502) ──────────
+                if resp.status_code in _TRANSIENT_STATUS_CODES and not _retry_fallback:
+                    delay = _TRANSIENT_RETRY_BASE_DELAY * 2
+                    logger.warning(
+                        "Gemini streaming %d — retrying in %.1fs…",
+                        resp.status_code, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    # Retry once via recursive call (with _retry_fallback to prevent infinite loop)
+                    async for event in self._stream_google_body(
+                        body, url, messages, tools, temperature, max_tokens,
+                        _retry_fallback=True,
+                    ):
+                        yield event
+                    return
+                elif resp.status_code in _TRANSIENT_STATUS_CODES:
+                    raise RuntimeError(
+                        f"Gemini {resp.status_code} for model '{self.model}' after retry. "
+                        f"The model may be temporarily overloaded or in preview with limited capacity.\n"
+                        f"Try: [bold]cvc agent --model gemini-2.5-flash[/bold]"
+                    )
+
                 if resp.status_code == 404:
                     raise RuntimeError(
                         f"Model '{self.model}' not found (404). "
-                        f"Valid Google models include: gemini-2.5-flash, gemini-2.5-pro, "
-                        f"gemini-3-pro-preview, gemini-2.5-flash-lite. "
-                        f"Run 'cvc setup' to reconfigure or use --model to override."
+                        f"Valid Google models: gemini-2.5-flash, gemini-2.5-pro, "
+                        f"gemini-3-pro-preview, gemini-3-flash-preview.\n"
+                        f"Run [bold]cvc setup[/bold] or use [bold]--model gemini-2.5-flash[/bold] to override."
                     )
                 if resp.status_code == 400:
                     # Read the body for error details
@@ -616,11 +842,49 @@ class AgentLLM:
                         body_bytes += chunk
                     error_body = body_bytes.decode("utf-8", errors="replace")
                     logger.error("Gemini 400 Bad Request: %s", error_body[:1000])
+
+                    # Auto-retry: if error is about thinking config and we
+                    # haven't retried yet, switch to the other param style.
+                    is_thinking_error = (
+                        "thinkingBudget" in error_body
+                        or "thinkingConfig" in error_body
+                        or "thinking_budget" in error_body.lower()
+                        or "thinking_level" in error_body.lower()
+                        or "thinking level" in error_body.lower()
+                        or "thinking mode" in error_body.lower()
+                        or "thinkingLevel" in error_body
+                        or "Budget" in error_body
+                    )
+                    if is_thinking_error and not _retry_fallback:
+                        # Fallback: use the opposite thinking param style.
+                        # Gemini 3 → try thinkingBudget (backward compat)
+                        # Gemini 2.5 → try a small thinkingBudget
+                        if "gemini-3" in self.model:
+                            logger.info(
+                                "thinkingLevel rejected — retrying with thinkingBudget=1024 (backward compat)"
+                            )
+                            fallback_thinking = {"thinkingBudget": 1024}
+                        else:
+                            logger.info(
+                                "thinkingBudget rejected — retrying with thinkingBudget=1024"
+                            )
+                            fallback_thinking = {"thinkingBudget": 1024}
+
+                        fallback_body = dict(body)
+                        gc = dict(fallback_body.get("generationConfig", {}))
+                        gc["thinkingConfig"] = fallback_thinking
+                        fallback_body["generationConfig"] = gc
+                        async for event in self._stream_google_body(
+                            fallback_body, url, messages, tools, temperature, max_tokens,
+                            _retry_fallback=True,
+                        ):
+                            yield event
+                        return
+
                     raise RuntimeError(
-                        f"Gemini returned 400 Bad Request for model '{self.model}'.\n"
-                        f"Response: {error_body[:500]}\n\n"
-                        f"If using a Gemini 3 model, ensure thought signatures are "
-                        f"being preserved. Try 'gemini-2.5-flash' as an alternative."
+                        f"Gemini 400 Bad Request for model '{self.model}'.\n"
+                        f"{error_body[:400]}\n\n"
+                        f"Try: [bold]cvc agent --model gemini-2.5-flash[/bold]"
                     )
                 resp.raise_for_status()
 
@@ -682,7 +946,13 @@ class AgentLLM:
                         completion_tokens = usage.get("candidatesTokenCount", completion_tokens)
 
         except httpx.HTTPStatusError as e:
-            raise RuntimeError(f"Gemini streaming error: {e}") from e
+            status = e.response.status_code
+            if status in _TRANSIENT_STATUS_CODES:
+                raise RuntimeError(
+                    f"Gemini {status} for model '{self.model}'. "
+                    f"The model may be temporarily overloaded or in preview with limited capacity."
+                ) from e
+            raise RuntimeError(f"Gemini streaming error ({status}): {e}") from e
 
         # Detect blocked / empty responses and raise actionable errors
         if not has_any_content and finish_reason:
@@ -843,8 +1113,18 @@ class AgentLLM:
             "stream": True,
         }
 
+        # PERF: Use Anthropic prompt caching — mark the system prompt as
+        # cacheable so subsequent turns skip re-processing the entire
+        # system prompt + auto-context (saves ~1-2s per turn).
         if system_parts:
-            body["system"] = "\n\n".join(system_parts)
+            combined_system = "\n\n".join(system_parts)
+            body["system"] = [
+                {
+                    "type": "text",
+                    "text": combined_system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         if tools:
             anthropic_tools = []

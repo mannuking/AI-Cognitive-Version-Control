@@ -403,29 +403,46 @@ class AgentSession:
         )
         self._health_bar: str = ""  # Cached health bar for the prompt
 
-        # Build auto-context
+        # PERF: Build auto-context, memory, and git context in parallel
+        # using threads (they're all I/O-bound file reads).
+        import concurrent.futures
         auto_ctx = ""
         memory_ctx = ""
         git_ctx = ""
-        try:
-            from cvc.agent.auto_context import build_auto_context
-            auto_ctx = build_auto_context(workspace)
-        except Exception as e:
-            logger.debug("Auto-context failed: %s", e)
 
-        try:
-            from cvc.agent.memory import build_memory_context
-            memory_ctx = build_memory_context(str(workspace))
-        except Exception as e:
-            logger.debug("Memory context failed: %s", e)
+        def _load_auto_context():
+            try:
+                from cvc.agent.auto_context import build_auto_context
+                return build_auto_context(workspace)
+            except Exception as e:
+                logger.debug("Auto-context failed: %s", e)
+                return ""
 
-        try:
-            from cvc.agent.git_integration import git_status, format_git_status
-            gs = git_status(workspace)
-            if gs.get("is_git"):
-                git_ctx = format_git_status(gs)
-        except Exception as e:
-            logger.debug("Git context failed: %s", e)
+        def _load_memory_context():
+            try:
+                from cvc.agent.memory import build_memory_context
+                return build_memory_context(str(workspace))
+            except Exception as e:
+                logger.debug("Memory context failed: %s", e)
+                return ""
+
+        def _load_git_context():
+            try:
+                from cvc.agent.git_integration import git_status, format_git_status
+                gs = git_status(workspace)
+                if gs.get("is_git"):
+                    return format_git_status(gs)
+            except Exception as e:
+                logger.debug("Git context failed: %s", e)
+            return ""
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            f_auto = pool.submit(_load_auto_context)
+            f_mem = pool.submit(_load_memory_context)
+            f_git = pool.submit(_load_git_context)
+            auto_ctx = f_auto.result(timeout=5)
+            memory_ctx = f_mem.result(timeout=5)
+            git_ctx = f_git.result(timeout=5)
 
         # Build and set the system prompt
         system_prompt = build_system_prompt(
@@ -560,7 +577,7 @@ class AgentSession:
         while iterations < MAX_TOOL_ITERATIONS:
             iterations += 1
 
-            render_thinking()
+            render_thinking(model=self.llm.model)
 
             try:
                 # Use streaming for the response
@@ -575,14 +592,19 @@ class AgentSession:
                 streamer = StreamingRenderer()
                 streaming_started = False
 
-                # Use higher max_tokens for post-tool-call iterations
-                # because the model needs room for thinking + analysis
+                # PERF: Use lower max_tokens for first turn (conversational
+                # responses rarely exceed 4K). Higher for tool iterations
+                # where the model needs room for analysis + planning.
                 max_tok = 16384 if iterations > 1 else 8192
+
+                # PERF: temperature=0.5 for tool iterations (more deterministic,
+                # faster decoding). 0.7 for conversational first response.
+                temp = 0.5 if iterations > 1 else 0.7
 
                 async for event in self.llm.chat_stream(
                     messages=self.messages,
                     tools=AGENT_TOOLS,
-                    temperature=0.7,
+                    temperature=temp,
                     max_tokens=max_tok,
                 ):
                     if event.type == "text_delta":
@@ -618,10 +640,21 @@ class AgentSession:
                 render_error(first_line)
                 logger.debug("LLM call failed: %s", exc, exc_info=True)
 
-                # Auto-retry on transient errors
-                if iterations == 1 and ("timeout" in str(exc).lower() or "connection" in str(exc).lower()):
-                    render_info("Retrying...")
-                    await asyncio.sleep(1)
+                # Auto-retry on transient errors (timeouts, connection, 503, 429, overloaded)
+                _err_lower = str(exc).lower()
+                _is_transient = (
+                    "timeout" in _err_lower
+                    or "connection" in _err_lower
+                    or "503" in _err_lower
+                    or "502" in _err_lower
+                    or "429" in _err_lower
+                    or "overloaded" in _err_lower
+                    or "temporarily" in _err_lower
+                    or "service unavailable" in _err_lower
+                )
+                if iterations <= 2 and _is_transient:
+                    render_info("Retrying…")
+                    await asyncio.sleep(1.0 if "503" in _err_lower or "429" in _err_lower else 0.3)
                     continue
                 break
 
@@ -843,7 +876,7 @@ class AgentSession:
                 retry_count += 1
                 if retry_count <= MAX_RETRY_ATTEMPTS:
                     render_tool_error(tc.name, f"Retrying ({retry_count}/{MAX_RETRY_ATTEMPTS}): {exc}")
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.2)
                 else:
                     result = f"Error: {exc}"
                     render_tool_error(tc.name, str(exc))
@@ -1890,6 +1923,11 @@ async def _run_agent_async(
         base_url=base_url,
     )
 
+    # PERF: Pre-warm the TCP+TLS connection in the background while
+    # we show the banner and do onboarding. This saves ~500ms-2s on
+    # the first LLM request.
+    _warm_task = asyncio.create_task(llm.warm_connection())
+
     try:
         from cvc import __version__ as version
     except ImportError:
@@ -1914,6 +1952,12 @@ async def _run_agent_async(
 
     # ── Smart onboarding: check CVC init & proxy status ──────────────────
     _smart_onboarding(workspace, config)
+
+    # Ensure connection warming completes before first user input
+    try:
+        await _warm_task
+    except Exception:
+        pass
 
     # ── Session resume check ─────────────────────────────────────────────
     _session_resume = False

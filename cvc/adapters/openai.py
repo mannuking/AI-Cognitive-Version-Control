@@ -30,7 +30,8 @@ logger = logging.getLogger("cvc.adapters.openai")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # ---- Available Models (verified Feb 2026) --------------------------------
-# gpt-5.2         — Flagship: best for coding & agentic tasks
+# gpt-5.3         — Newest flagship: best reasoning & coding
+# gpt-5.2         — Previous flagship: coding & agentic tasks
 # gpt-5.2-codex   — Optimized for long-horizon agentic coding
 # gpt-5.2-pro     — Higher quality, more compute
 # gpt-5-mini      — Fast & cost-efficient

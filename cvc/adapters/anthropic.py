@@ -38,7 +38,8 @@ ANTHROPIC_VERSION = "2023-06-01"
 # ---- Available Models (verified Feb 2026) --------------------------------
 # claude-opus-4-6     — Most intelligent, for agents & coding
 # claude-opus-4-5     — Previous flagship, excellent reasoning
-# claude-sonnet-4-5   — Best speed/intelligence combo
+# claude-sonnet-4-6   — Best speed/intelligence combo (latest)
+# claude-sonnet-4-5   — Previous Sonnet, still great
 # claude-haiku-4-5    — Fastest
 # --------------------------------------------------------------------------
 

@@ -49,9 +49,11 @@ MODEL_CONTEXT_LIMITS: dict[str, int] = {
     # Anthropic
     "claude-opus-4-6":       200_000,
     "claude-opus-4-5":       200_000,
+    "claude-sonnet-4-6":     200_000,
     "claude-sonnet-4-5":     200_000,
     "claude-haiku-4-5":      200_000,
     # OpenAI
+    "gpt-5.3":               128_000,
     "gpt-5.2":               128_000,
     "gpt-5.2-codex":         128_000,
     "gpt-5-mini":            128_000,
