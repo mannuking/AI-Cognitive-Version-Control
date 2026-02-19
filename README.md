@@ -42,7 +42,7 @@ irm https://jaimeena.com/cvc/install.ps1 | iex
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-CC3333?style=for-the-badge&logo=python&logoColor=white&labelColor=2C0000)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/Status-Production_Ready-FF4444?style=for-the-badge&labelColor=2C0000)](https://github.com/mannuking/CVC)
 
-[![Downloads](https://img.shields.io/pypi/dm/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&labelColor=2C0000&color=8B0000)](https://pypi.org/project/tm-ai/)
+[![Downloads](https://img.shields.io/pypi/dt/tm-ai?style=for-the-badge&logo=pypi&logoColor=white&labelColor=2C0000&color=8B0000)](https://pypi.org/project/tm-ai/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-55AA55?style=for-the-badge&logoColor=white&labelColor=1a5f1f)](http://makeapullrequest.com)
 [![Code Style](https://img.shields.io/badge/Code_Style-Black-000000?style=for-the-badge&labelColor=2C0000)](https://github.com/psf/black)
 [![Tests](https://img.shields.io/badge/Tests-Passing-55AA55?style=for-the-badge&labelColor=1a5f1f)](https://github.com/mannuking/CVC)
@@ -691,22 +691,17 @@ cvc/
 
 <table>
 <tr>
-<td align="center" width="25%">
-<h3>💬</h3>
-<b>Discord</b><br>
-<sub><a href="https://discord.gg/cvc">Join our server →</a></sub>
-</td>
-<td align="center" width="25%">
+<td align="center" width="33%">
 <h3>🛠</h3>
 <b>Issues</b><br>
 <sub><a href="https://github.com/mannuking/CVC/issues">Report bugs →</a></sub>
 </td>
-<td align="center" width="25%">
+<td align="center" width="33%">
 <h3>💡</h3>
 <b>Discussions</b><br>
 <sub><a href="https://github.com/mannuking/CVC/discussions">Share ideas →</a></sub>
 </td>
-<td align="center" width="25%">
+<td align="center" width="33%">
 <h3>𝕏</h3>
 <b>Twitter</b><br>
 <sub><a href="https://twitter.com/cvc_ai">Follow updates →</a></sub>
@@ -794,16 +789,16 @@ uv sync --extra dev
 </tr>
 </thead>
 <tbody>
-<tr><td>🤖 Built-in Agent CLI</td><td>✅ **Shipped v1.5.4** — 17 tools, 4 providers</td></tr>
-<tr><td>☁️ All 4 Provider Adapters</td><td>✅ **Shipped** — Anthropic, OpenAI, Google, Ollama</td></tr>
-<tr><td>🔌 MCP Server</td><td>✅ **Shipped** — stdio + SSE transports</td></tr>
-<tr><td>🚀 Zero-config Launch</td><td>✅ **Shipped** — <code>cvc launch</code> for all tools</td></tr>
-<tr><td>🔗 Git Bridge</td><td>✅ **Shipped** — Shadow branches, hooks, notes</td></tr>
-<tr><td>🎨 VS Code Extension</td><td>📜 **Q2 2026** — Visual commit graph, time-travel</td></tr>
-<tr><td>🌐 Web UI</td><td>📜 **Q2 2026** — Browser visualization & management</td></tr>
-<tr><td>👥 Multi-agent support</td><td>📜 **Q3 2026** — Shared DB with conflict resolution</td></tr>
-<tr><td>☁️ Cloud sync</td><td>📜 **Q3 2026** — S3/MinIO for teams</td></tr>
-<tr><td>📊 Metrics dashboard</td><td>📜 **Q4 2026** — Cache hits, context utilization, analytics</td></tr>
+<tr><td>🤖 Built-in Agent CLI</td><td>✅ <b>Shipped v1.5.4</b> — 17 tools, 4 providers</td></tr>
+<tr><td>☁️ All 4 Provider Adapters</td><td>✅ <b>Shipped</b> — Anthropic, OpenAI, Google, Ollama</td></tr>
+<tr><td>🔌 MCP Server</td><td>✅ <b>Shipped</b> — stdio + SSE transports</td></tr>
+<tr><td>🚀 Zero-config Launch</td><td>✅ <b>Shipped</b> — <code>cvc launch</code> for all tools</td></tr>
+<tr><td>🔗 Git Bridge</td><td>✅ <b>Shipped</b> — Shadow branches, hooks, notes</td></tr>
+<tr><td>🎨 VS Code Extension</td><td>📜 <b>Q2 2026</b> — Visual commit graph, time-travel</td></tr>
+<tr><td>🌐 Web UI</td><td>📜 <b>Q2 2026</b> — Browser visualization & management</td></tr>
+<tr><td>👥 Multi-agent support</td><td>📜 <b>Q3 2026</b> — Shared DB with conflict resolution</td></tr>
+<tr><td>☁️ Cloud sync</td><td>📜 <b>Q3 2026</b> — S3/MinIO for teams</td></tr>
+<tr><td>📊 Metrics dashboard</td><td>📜 <b>Q4 2026</b> — Cache hits, context utilization, analytics</td></tr>
 </tbody>
 </table>
 
