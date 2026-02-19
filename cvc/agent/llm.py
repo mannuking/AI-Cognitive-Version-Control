@@ -618,14 +618,21 @@ class AgentLLM:
         if _is_gemini3:
             # Use thinkingLevel for Gemini 3 — "low" minimizes latency
             # "high" is default and takes 50+ seconds even for simple queries
+            # NOTE: "low" is the minimum for Gemini 3 Pro ("minimal" not supported).
+            # Latency is primarily server-side; this is already the fastest setting.
             if "pro" in self.model:
                 gen_config["thinkingConfig"] = {"thinkingLevel": "low"}
             else:
                 # Gemini 3 Flash: "minimal" ≈ no thinking, lowest latency
                 gen_config["thinkingConfig"] = {"thinkingLevel": "minimal"}
         elif _is_gemini25:
+            # Scale thinking budget with output size:
+            #   - Small max_tokens (≤8192, conversational) → cap at 4096 thinking tokens
+            #   - Large max_tokens (>8192, tool iterations) → cap at 8192 thinking tokens
+            # Previous value was 16384 which caused unnecessary latency on simple queries.
+            _think_cap = 4096 if max_tokens <= 8192 else 8192
             gen_config["thinkingConfig"] = {
-                "thinkingBudget": min(max_tokens * 2, 16384),
+                "thinkingBudget": min(max_tokens, _think_cap),
             }
 
         body: dict[str, Any] = {
@@ -659,7 +666,7 @@ class AgentLLM:
 
             if resp.status_code in _TRANSIENT_STATUS_CODES:
                 delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning(
+                logger.debug(
                     "Gemini %d (attempt %d/%d) — retrying in %.1fs…",
                     resp.status_code, attempt + 1, _MAX_TRANSIENT_RETRIES + 1, delay,
                 )
@@ -763,7 +770,7 @@ class AgentLLM:
                 _is_transient = any(code in err_lower for code in ("503", "502", "429", "500", "overloaded", "unavailable", "capacity"))
                 if _is_transient and attempt < _MAX_TRANSIENT_RETRIES - 1:
                     delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
-                    logger.warning(
+                    logger.debug(
                         "Gemini streaming transient error (attempt %d/%d) — retrying in %.1fs…",
                         attempt + 1, _MAX_TRANSIENT_RETRIES, delay,
                     )
@@ -774,7 +781,7 @@ class AgentLLM:
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code in _TRANSIENT_STATUS_CODES and attempt < _MAX_TRANSIENT_RETRIES - 1:
                     delay = _TRANSIENT_RETRY_BASE_DELAY * (2 ** attempt)
-                    logger.warning(
+                    logger.debug(
                         "Gemini streaming HTTP %d (attempt %d/%d) — retrying in %.1fs…",
                         exc.response.status_code, attempt + 1, _MAX_TRANSIENT_RETRIES, delay,
                     )
@@ -809,7 +816,7 @@ class AgentLLM:
                 # ── Transient server errors (503, 429, 500, 502) ──────────
                 if resp.status_code in _TRANSIENT_STATUS_CODES and not _retry_fallback:
                     delay = _TRANSIENT_RETRY_BASE_DELAY * 2
-                    logger.warning(
+                    logger.debug(
                         "Gemini streaming %d — retrying in %.1fs…",
                         resp.status_code, delay,
                     )
