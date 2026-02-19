@@ -68,7 +68,7 @@ if ($toolList -match "(^|\s)$PyPIName(\s|@|$)") {
     Write-Step "Existing uv-managed installation found — upgrading..."
 
     # Capture all output (stdout + stderr) without letting PowerShell throw
-    $upgradeOut = (uv tool upgrade $PyPIName 2>&1) | Out-String
+    $upgradeOut = (uv tool upgrade $PyPIName 2>&1) -join "`n"
     $upgradeOk  = $LASTEXITCODE -eq 0
 
     # "Nothing to upgrade" is written to stderr with exit code 1 — treat as success
@@ -95,7 +95,11 @@ if ($toolList -match "(^|\s)$PyPIName(\s|@|$)") {
 }
 
 # Ensure tool bin directory is on the user PATH
-try { uv tool update-shell 2>&1 | Out-Null } catch {}
+try {
+    uv tool update-shell 2>&1 | Out-Null
+} catch {
+    # ignore — non-critical
+}
 
 # ── Step 3: Verify & detect PATH conflicts ────────────────────────────────────
 Write-Step "Verifying installation..."
@@ -110,9 +114,11 @@ $uvBinDir = $null
 try {
     $dirOut = uv tool dir --bin 2>&1
     if ($LASTEXITCODE -eq 0 -and $dirOut) {
-        $uvBinDir = $dirOut.ToString().Trim()
+        $uvBinDir = ($dirOut -join '').Trim()
     }
-} catch {}
+} catch {
+    # ignore — will use fallback path below
+}
 
 if (-not $uvBinDir) {
     # Fallback: uv's default bin dir on Windows is %USERPROFILE%\.local\bin
