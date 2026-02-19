@@ -241,21 +241,21 @@ Instead of versioning source code, it versions the agent's **entire cognitive st
 <table>
 <thead>
 <tr>
-<th align="center" width="33%">🤖 **Built-in Agent**</th>
-<th align="center" width="33%">🔌 **Universal Proxy**</th>
-<th align="center" width="34%">⏱️ **Time Machine**</th>
+<th align="center" width="33%">🤖 <b>Built-in Agent</b></th>
+<th align="center" width="33%">🔌 <b>Universal Proxy</b></th>
+<th align="center" width="34%">⏱️ <b>Time Machine</b></th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td align="center">
-Just type `cvc` for a powerful<br>AI coding assistant with<br>**17 built-in tools** and<br>**4-provider support**
+Just type <code>cvc</code> for a powerful<br>AI coding assistant with<br><b>17 built-in tools</b> and<br><b>4-provider support</b>
 </td>
 <td align="center">
-Run **any AI tool** through<br>CVC's time machine via<br>**API proxy** or **MCP server**<br>Zero configuration required
+Run <b>any AI tool</b> through<br>CVC's time machine via<br><b>API proxy</b> or <b>MCP server</b><br>Zero configuration required
 </td>
 <td align="center">
-**Auto-checkpoint** every N turns<br>**Never lose context**<br>**Crash recovery** built-in<br>Time-travel to any point
+<b>Auto-checkpoint</b> every N turns<br><b>Never lose context</b><br><b>Crash recovery</b> built-in<br>Time-travel to any point
 </td>
 </tr>
 </tbody>
@@ -272,22 +272,79 @@ Run **any AI tool** through<br>CVC's time machine via<br>**API proxy** or **MCP 
 <table>
 <thead>
 <tr>
-<th width="25%"></th>
-<th align="center" width="25%">Claude Code / Copilot</th>
-<th align="center" width="25%">Aider / Cursor</th>
-<th align="center" width="25%">🔥 **CVC**</th>
+<th width="20%"><b>FEATURE</b></th>
+<th align="center" width="25%"><b>CLAUDE CODE / CODEX</b></th>
+<th align="center" width="30%"><b>ANTIGRAVITY / CURSOR / VS CODE</b></th>
+<th align="center" width="25%"><b>🔥 CVC AGENT</b></th>
 </tr>
 </thead>
 <tbody>
-<tr><td><b>Time-travel</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅</td></tr>
-<tr><td><b>Branching</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅</td></tr>
-<tr><td><b>Semantic search</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅</td></tr>
-<tr><td><b>Multi-provider</b></td><td align="center">❌</td><td align="center">Limited</td><td align="center">✅ 4 providers</td></tr>
-<tr><td><b>Context merging</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅ Semantic</td></tr>
-<tr><td><b>Image analysis</b></td><td align="center">Limited</td><td align="center">❌</td><td align="center">✅ Built-in</td></tr>
-<tr><td><b>Auto-checkpoint</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅ Configurable</td></tr>
-<tr><td><b>Local/Offline</b></td><td align="center">❌</td><td align="center">Partial</td><td align="center">✅ Ollama support</td></tr>
-<tr><td><b>Crash recovery</b></td><td align="center">❌</td><td align="center">❌</td><td align="center">✅ Full restoration</td></tr>
+<tr>
+<td><b>Context Memory</b></td>
+<td align="center">Linear (Lost on restart)</td>
+<td align="center">Session-based / Linear</td>
+<td align="center">✅ <b>Time-Travel (Project Isolated)</b></td>
+</tr>
+<tr>
+<td><b>Branching</b></td>
+<td align="center">No branching / rollback</td>
+<td align="center">Not supported</td>
+<td align="center">✅ <b>Full Branch Support</b></td>
+</tr>
+<tr>
+<td><b>Undo Capability</b></td>
+<td align="center">Single step (maybe)</td>
+<td align="center">Single step / Ctrl+Z</td>
+<td align="center">✅ <b>Instant Rewind (Any State)</b></td>
+</tr>
+<tr>
+<td><b>Search History</b></td>
+<td align="center">Current session only</td>
+<td align="center">Current session only</td>
+<td align="center">✅ <b>Global Semantic Search</b></td>
+</tr>
+<tr>
+<td><b>Providers</b></td>
+<td align="center">Single provider (usually)</td>
+<td align="center">Vendor locked often</td>
+<td align="center">✅ <b>Agnostic (4+ Providers)</b></td>
+</tr>
+<tr>
+<td><b>Cost</b></td>
+<td align="center">Full Re-prompting</td>
+<td align="center">Full Re-prompting</td>
+<td align="center">✅ <b>~90% Cheaper (Cached)</b></td>
+</tr>
+<tr>
+<td><b>Local / Offline</b></td>
+<td align="center">Cloud Dependent</td>
+<td align="center">Cloud Dependent</td>
+<td align="center">✅ <b>100% Local / Offline Capable</b></td>
+</tr>
+<tr>
+<td><b>Context Merging</b></td>
+<td align="center">Not available</td>
+<td align="center">Not available</td>
+<td align="center">✅ <b>Semantic Merge</b></td>
+</tr>
+<tr>
+<td><b>Image Analysis</b></td>
+<td align="center">Limited</td>
+<td align="center">Limited</td>
+<td align="center">✅ <b>Built-in Vision</b></td>
+</tr>
+<tr>
+<td><b>Auto-checkpoint</b></td>
+<td align="center">Not available</td>
+<td align="center">Not available</td>
+<td align="center">✅ <b>Configurable</b></td>
+</tr>
+<tr>
+<td><b>Crash Recovery</b></td>
+<td align="center">Session lost</td>
+<td align="center">Session lost</td>
+<td align="center">✅ <b>Full Restoration</b></td>
+</tr>
 </tbody>
 </table>
 
@@ -309,13 +366,17 @@ Run **any AI tool** through<br>CVC's time machine via<br>**API proxy** or **MCP 
 
 #### 🎯 **Recommended: One-Line Installer** (Installs Python if needed)
 
+<div align="center">
+
 ```bash
-# macOS / Linux / WSL
+# 🎧 macOS / Linux / WSL
 curl -fsSL https://jaimeena.com/cvc/install.sh | bash
 
-# Windows PowerShell
+# 🪟 Windows PowerShell
 irm https://jaimeena.com/cvc/install.ps1 | iex
 ```
+
+</div>
 
 <details>
 <summary><b>📦 Alternative: pip / uv</b></summary>
@@ -341,6 +402,8 @@ pip install "tm-ai[google]"      # Gemini
 
 ### **Usage**
 
+<div align="center">
+
 ```bash
 # 🤖 Agent Mode - Just type 'cvc'
 cvc
@@ -354,9 +417,13 @@ cvc launch cursor          # Cursor IDE
 cvc up                     # Setup + init + serve
 ```
 
+</div>
+
 <br>
 
 ### **Set API Keys**
+
+<div align="center">
 
 ```bash
 # Environment variables
@@ -367,6 +434,8 @@ export GOOGLE_API_KEY="AIza..."
 # Or interactive setup
 cvc setup
 ```
+
+</div>
 
 <br>
 
