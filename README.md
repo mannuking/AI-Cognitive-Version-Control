@@ -254,13 +254,13 @@ Instead of versioning source code, it versions the agent's **entire cognitive st
 <tbody>
 <tr>
 <td align="center">
-Just type <code>cvc</code> for a powerful<br>AI coding assistant with<br><b>17 built-in tools</b> and<br><b>4-provider support</b>
+Just type <code>cvc</code> for a powerful<br>AI coding assistant with<br><b>17 built-in tools</b> and<br><b>5-provider support</b>
 </td>
 <td align="center">
 Run <b>any AI tool</b> through<br>CVC's time machine via<br><b>API proxy</b> or <b>MCP server</b><br>Zero configuration required
 </td>
 <td align="center">
-<b>Auto-checkpoint</b> every N turns<br><b>Never lose context</b><br><b>Crash recovery</b> built-in<br>Time-travel to any point
+<b>Auto-checkpoint</b> every N turns<br><b>Never lose context</b><br><b>Crash recovery</b> built-in<br>Time-travel to any point<br><b>--no-think</b> for faster responses
 </td>
 </tr>
 </tbody>
@@ -312,7 +312,7 @@ Run <b>any AI tool</b> through<br>CVC's time machine via<br><b>API proxy</b> or 
 <td><b>Providers</b></td>
 <td align="center">Single provider (usually)</td>
 <td align="center">Vendor locked often</td>
-<td align="center">✅ <b>Agnostic (4+ Providers)</b></td>
+<td align="center">✅ <b>Agnostic (5+ Providers)</b></td>
 </tr>
 <tr>
 <td><b>Cost</b></td>
@@ -680,6 +680,12 @@ cvc/
 <td><code>qwen3-coder:30b</code>, <code>devstral:24b</code>, <code>deepseek-r1:8b</code></td>
 <td>100% local, no API key</td>
 </tr>
+<tr>
+<td><b>🟤 LM Studio</b></td>
+<td><code>qwen2.5-coder-32b-instruct</code></td>
+<td><code>devstral-small-2505</code>, <code>deepseek-r1-distill-qwen-32b</code>, <code>gemma-3-27b-it</code></td>
+<td>100% local, OpenAI-compat</td>
+</tr>
 </tbody>
 </table>
 
@@ -806,8 +812,8 @@ uv sync --extra dev
 </tr>
 </thead>
 <tbody>
-<tr><td>🤖 Built-in Agent CLI</td><td>✅ <b>Shipped v1.5.4</b> — 17 tools, 4 providers</td></tr>
-<tr><td>☁️ All 4 Provider Adapters</td><td>✅ <b>Shipped</b> — Anthropic, OpenAI, Google, Ollama</td></tr>
+<tr><td>🤖 Built-in Agent CLI</td><td>✅ <b>Shipped v1.6.2</b> — 17 tools, 5 providers, <code>--no-think</code></td></tr>
+<tr><td>☁️ All 5 Provider Adapters</td><td>✅ <b>Shipped</b> — Anthropic, OpenAI, Google, Ollama, LM Studio</td></tr>
 <tr><td>🔌 MCP Server</td><td>✅ <b>Shipped</b> — stdio + SSE transports</td></tr>
 <tr><td>🚀 Zero-config Launch</td><td>✅ <b>Shipped</b> — <code>cvc launch</code> for all tools</td></tr>
 <tr><td>🔗 Git Bridge</td><td>✅ <b>Shipped</b> — Shadow branches, hooks, notes</td></tr>
@@ -845,7 +851,7 @@ CVC (Cognitive Version Control) is Git for AI agent context. It versions the age
 
 <br>
 
-CVC adds: ⏪ Time-travel • 🌿 Branching • 🔍 Semantic search • 🔀 Context merging • 💾 Auto-checkpoint • 🔄 Crash recovery • 🤖 Multi-provider support (4 vs 1)
+CVC adds: ⏪ Time-travel • 🌿 Branching • 🔍 Semantic search • 🔀 Context merging • 💾 Auto-checkpoint • 🔄 Crash recovery • 🤖 Multi-provider support (5 vs 1)
 
 </details>
 
@@ -896,8 +902,9 @@ CVC itself is **free and open source**. You only pay for LLM API calls (Anthropi
 
 - 🟣 **Anthropic** (Claude Opus 4.6, Sonnet 4.5, Haiku 4.5)  
 - 🟢 **OpenAI** (GPT-5.2, GPT-5.2-Codex, GPT-5-mini)  
-- 🔵 **Google** (Gemini 3 Pro, Gemini 2.5 Pro/Flash)  
-- ⚪ **Ollama** (Qwen, DeepSeek, Devstral, etc.)
+- 🔵 **Google** (Gemini 3 Pro/Flash Preview, Gemini 2.5 Pro/Flash — with thinking level control)  
+- ⚪ **Ollama** (Qwen, DeepSeek, Devstral, etc.)  
+- 🟤 **LM Studio** (any locally loaded model — OpenAI-compatible)
 
 </details>
 
@@ -919,7 +926,7 @@ For now, use the beautiful terminal UI with Rich formatting.
 
 <br>
 
-**Yes!** CVC is production-ready (v1.5.4) with crash-resistant local storage, used by solo developers, teams, and enterprises.
+**Yes!** CVC is production-ready (v1.6.2) with crash-resistant local storage, used by solo developers, teams, and enterprises.
 
 </details>
 
